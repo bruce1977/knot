@@ -12,6 +12,7 @@ const DEFAULT_CONFIG = {
         source_folder: "inbox",
         target_folder: "marked",
         batch_size: 30,
+        "plug-ins": ["extractor_original", "extractor_meta", "extractor_rate"],
     },
     weknora: {
         source_folder: "marked",

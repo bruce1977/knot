@@ -242,11 +242,9 @@ async function llmChat(systemPrompt, userPrompt, model, opts = {}) {
             );
         } catch (err) {
             lastErr = err;
+            // Retries stay silent per file; counts surface in the run summary.
             if (attempt < MAX_RETRIES) {
                 _llmStats.retries += 1;
-                console.log(
-                    `LLM request failed (${attempt}/${MAX_RETRIES}): ${err.message}, retrying in ${1000 * attempt}ms...`
-                );
                 await sleep(1000 * attempt);
             }
         } finally {

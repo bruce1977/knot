@@ -44,8 +44,8 @@
 
 **Configuration Files**:
 - `.config/config.json`: Main configuration
-- `.config/prompts/`: Custom prompt templates
-- `.config/schema/`: Custom JSON schemas
+- `scripts/plugins/<plugin>_config.json`: Prompt + schema for each plugin (default)
+- `.config/<plugin>_config.json`: Optional per-profile override, picked up automatically
 
 ## Interaction Patterns
 

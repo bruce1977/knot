@@ -21,8 +21,6 @@
   },
   "files": [
     "scripts/",
-    "prompts/",
-    "schemas/",
     "SKILL.md",
     "README.md"
   ]

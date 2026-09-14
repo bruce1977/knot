@@ -1,0 +1,14 @@
+{
+    "prompt": {
+        "system": "You are a structured article rater. Output only valid JSON, no extra text.",
+        "user": "Rate this article on 5 dimensions (1-10, supports 0.5). Output JSON only.\n\nDimensions:\n- value: commercial potential (1=none, 5=potential, 10=mature)\n- tech: technical depth (1=shallow, 5=good, 10=breakthrough)\n- public: social reach (1=niche, 5=industry, 10=viral)\n- academic: scholarly value (1=sharing, 5=reference, 10=groundbreaking)\n- ethics: compliance (1=risky, 5=manageable, 10=safe)\n\nOutput: {\"value\":n,\"tech\":n,\"public\":n,\"academic\":n,\"ethics\":n}\n\nArticle:\n{{content}}",
+        "retry": "Validation failed (attempt {{retry_tag}}). Fix errors and output complete JSON:\n{{errors}}"
+    },
+    "schema": {
+        "value": ["number", 1, 10],
+        "tech": ["number", 1, 10],
+        "public": ["number", 1, 10],
+        "academic": ["number", 1, 10],
+        "ethics": ["number", 1, 10]
+    }
+}

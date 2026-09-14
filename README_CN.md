@@ -17,12 +17,8 @@
 ${profile}/
 ├── .config/
 │   ├── config.json              ← 主配置文件
-│   ├── prompts/                 ← 自定义提示词（可选）
-│   │   ├── meta.json
-│   │   └── rate.json
-│   └── schema/                  ← 自定义数据结构（可选）
-│       ├── meta.json
-│       └── rate.json
+│   ├── extractor_meta_config.json   ← 可选：覆盖 meta 插件配置
+│   └── extractor_rate_config.json   ← 可选：覆盖 rate 插件配置
 ├── inbox/                       ← 原始文档
 ├── marked/                      ← 已分析文档
 ├── weknora/                     ← 已同步文档
@@ -135,18 +131,34 @@ Profile 路径解析：`${KB_BASE_PATH}/${KB_DEFAULT_PROFILE}`（如 `D:\knowled
 | `WEKNORA_BASE_URL` | 必填 | WeKnora API 地址 |
 | `WEKNORA_API_KEY` | 必填 | API 密钥 |
 
-## 自定义提示词与数据结构
+## 插件配置（提示词 + 数据结构）
 
-在 `${profile}/.config/prompts/` 和 `${profile}/.config/schema/` 中放置同名文件可覆盖默认配置：
+每个插件的提示词与数据结构合并为**一个**配置文件，默认随插件放在 `scripts/plugins/`：
 
-| 可选文件 | 作用 |
-|---------|------|
-| `.config/prompts/meta.json` | 覆盖元数据提取提示词 |
-| `.config/prompts/rate.json` | 覆盖评分提取提示词 |
-| `.config/schema/meta.json` | 覆盖元数据 JSON Schema |
-| `.config/schema/rate.json` | 覆盖评分 JSON Schema |
+```
+scripts/plugins/
+├── extractor_meta.js              ← 插件实现
+├── extractor_meta_config.json     ← prompt + schema
+├── extractor_rate.js
+└── extractor_rate_config.json
+```
 
-默认文件位于 `skills/knowledge/prompts/` 和 `skills/knowledge/schemas/`。
+文件结构：
+
+```json
+{
+  "prompt": { "system": "...", "user": "... {{content}}", "retry": "..." },
+  "schema": { "title": ["string", 1], "tags": ["array", 2, 5] }
+}
+```
+
+要覆盖默认配置，在 profile 的 `.config/` 下放一个**同名**文件即可，无需在 `config.json` 里声明：
+
+```
+${profile}/.config/extractor_meta_config.json    ← 存在则覆盖，否则用插件目录默认文件
+```
+
+文件名固定为 `<插件名>_config.json`。覆盖文件为**整体替换**，需包含完整的 `prompt` 与 `schema` 两段。
 
 ## 跨厂商配置（LLM 后端）
 

@@ -17,12 +17,8 @@ Core skill for knowledge base pipeline, providing four main functions: initializ
 ${profile}/
 ├── .config/
 │   ├── config.json              ← Main configuration file
-│   ├── prompts/                 ← Custom prompts (optional)
-│   │   ├── meta.json
-│   │   └── rate.json
-│   └── schema/                  ← Custom data schemas (optional)
-│       ├── meta.json
-│       └── rate.json
+│   ├── extractor_meta_config.json   ← Optional: overrides the meta plugin config
+│   └── extractor_rate_config.json   ← Optional: overrides the rate plugin config
 ├── inbox/                       ← Raw documents
 ├── marked/                      ← Analyzed documents
 ├── weknora/                     ← Synced documents
@@ -135,18 +131,36 @@ Profile path resolution: `${KB_BASE_PATH}/${KB_DEFAULT_PROFILE}` (e.g., `D:\know
 | `WEKNORA_BASE_URL` | required | WeKnora API base URL |
 | `WEKNORA_API_KEY` | required | API key |
 
-## Custom Prompts & Schemas
+## Plugin Configs (Prompts & Schemas)
 
-Place files in `${profile}/.config/prompts/` and `${profile}/.config/schema/` to override defaults:
+Each plugin keeps its prompt and schema in **one** config file next to the plugin:
 
-| Optional File | Purpose |
-|---------------|---------|
-| `.config/prompts/meta.json` | Override metadata extraction prompts |
-| `.config/prompts/rate.json` | Override rating extraction prompts |
-| `.config/schema/meta.json` | Override metadata JSON Schema |
-| `.config/schema/rate.json` | Override rating JSON Schema |
+```
+scripts/plugins/
+├── extractor_meta.js              ← plugin implementation
+├── extractor_meta_config.json     ← prompt + schema
+├── extractor_rate.js
+└── extractor_rate_config.json
+```
 
-Default files are in `skills/knowledge/prompts/` and `skills/knowledge/schemas/`.
+File shape:
+
+```json
+{
+  "prompt": { "system": "...", "user": "... {{content}}", "retry": "..." },
+  "schema": { "title": ["string", 1], "tags": ["array", 2, 5] }
+}
+```
+
+To override the defaults, drop a same-named file into the profile's `.config/`
+— no entry in `config.json` is needed:
+
+```
+${profile}/.config/extractor_meta_config.json    ← used if present, else the built-in one
+```
+
+The file name is fixed as `<plugin-name>_config.json`. An override replaces the
+default entirely — include both `prompt` and `schema`.
 
 ## LLM Backend Configuration
 

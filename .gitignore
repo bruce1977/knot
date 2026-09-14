@@ -31,6 +31,9 @@ tmp/
 *.meta.json
 *.rate.json
 
+.workbuddy
+.workbuddy/
+
 # ─── Profile Runtime Directories ─────────────────────────────────────────────
 # (knowledge base profile directories contain runtime data)
 # inbox/

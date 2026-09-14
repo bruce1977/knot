@@ -24,12 +24,8 @@ description: "知识库管线技能：初始化目录、文档分析（元数据
 ${profile}/
 ├── .config/
 │   ├── config.json              ← 主配置文件
-│   ├── prompts/                 ← 自定义提示词（可选）
-│   │   ├── meta.json            ← 覆盖元数据提取提示词
-│   │   └── rate.json            ← 覆盖评分提取提示词
-│   └── schema/                  ← 自定义数据结构（可选）
-│       ├── meta.json            ← 覆盖元数据 JSON Schema
-│       └── rate.json            ← 覆盖评分 JSON Schema
+│   ├── extractor_meta_config.json   ← 可选：覆盖 meta 插件配置
+│   └── extractor_rate_config.json   ← 可选：覆盖 rate 插件配置
 ├── inbox/                       ← 原始文档
 ├── marked/                      ← 已分析文档
 ├── weknora/                     ← 已同步文档
@@ -108,29 +104,73 @@ node skills/knowledge/scripts/analyze_start.js <source_dir> <target_dir> [batch_
 | `KB_LLM_RATE_MODEL` | 否 | 继承 `KB_LLM_MODEL` | 评分提取专用模型（覆盖默认） |
 | `KB_LLM_TIMEOUT_MS` | 否 | `120000` | 单次 LLM 请求超时（毫秒） |
 
-### 自定义提示词与数据结构
+### 插件配置：提示词 + 数据结构
 
-在 `${profile}/.config/prompts/` 和 `${profile}/.config/schema/` 中放置同名文件可覆盖默认配置：
+每个插件的提示词与数据结构合并在**一个**配置文件里，默认随插件放在 `scripts/plugins/`：
 
-| 可选文件 | 作用 |
-|---------|------|
-| `.config/prompts/meta.json` | 覆盖元数据提取提示词（system/user/retry） |
-| `.config/prompts/rate.json` | 覆盖评分提取提示词（system/user/retry） |
-| `.config/schema/meta.json` | 覆盖元数据 JSON Schema |
-| `.config/schema/rate.json` | 覆盖评分 JSON Schema |
+```
+scripts/plugins/
+├── extractor_meta.js              ← 插件实现
+├── extractor_meta_config.json     ← prompt + schema
+├── extractor_rate.js
+└── extractor_rate_config.json
+```
 
-未配置时自动使用 `skills/knowledge/prompts/` 和 `skills/knowledge/schemas/` 中的默认文件。
+文件结构（`prompt` 与 `schema` 两段）：
+
+```json
+{
+  "prompt": {
+    "system": "You are a structured metadata extractor. Output only valid JSON, no extra text.",
+    "user": "Extract metadata ... {{content}}",
+    "retry": "Validation failed (attempt {{retry_tag}}). Fix errors and output complete JSON:\n{{errors}}"
+  },
+  "schema": {
+    "title": ["string", 1],
+    "tags": ["array", 2, 5]
+  }
+}
+```
+
+要覆盖默认配置，在 profile 的 `.config/` 下放一个**同名**文件即可，无需在 `config.json` 里声明：
+
+```
+${profile}/.config/extractor_meta_config.json    ← 存在则覆盖，否则用插件目录默认文件
+```
+
+文件名固定为 `<插件名>_config.json`。覆盖文件是**整体替换**，需包含完整的 `prompt` 与 `schema` 两段。
 
 ### 脚本架构
 
 ```
 analyze_start.js                 ← Main entry: orchestrates full pipeline
 ├── lib/llm.js                   ← LLM client + utility functions
-├── lib/content_hash.js          ← Content hash (3 rounds sha256, 12 hex)
-├── analyze_extract_meta.js      ← Metadata extraction (in-process module)
-├── analyze_extract_rate.js      ← Rating extraction (in-process module)
-└── analyze_frontmatter.js       ← YAML frontmatter generation (in-process module)
+├── lib/frontmatter.js           ← YAML frontmatter generation
+├── lib/extractor.js             ← BaseExtractor: prompt/schema/cache/cleanup
+└── plugins/                     ← Extractor plugins, loaded by config `plug-ins`
+    ├── extractor_original.js    ← Original frontmatter (no LLM, no cache)
+    ├── extractor_meta.js        ← Metadata extraction
+    ├── extractor_meta_config.json   ← its prompt + schema
+    ├── extractor_rate.js        ← Rating extraction
+    └── extractor_rate_config.json   ← its prompt + schema
 ```
+
+每个插件自行负责自己的临时缓存（写、读、清理）；`usesCache: false` 的插件不产生临时文件，主流程不做任何缓存管理。
+
+### 插件列表
+
+插件列表在 `.config/config.json` 的 `analyze` 节下配置，按数组顺序执行（后者覆盖前者）：
+
+```json
+{
+  "analyze": {
+    "batch_size": 30,
+    "plug-ins": ["extractor_original", "extractor_meta", "extractor_rate"]
+  }
+}
+```
+
+未配置时使用上表全部三个插件。插件只服务于 analyze 场景，配置一律放在 `analyze` 节下，不设全局键。
 
 ### 处理流程
 
@@ -141,34 +181,45 @@ source_dir/*.md
   │
   ▼  Step 2: Compute content hash (3 rounds sha256, 12 hex)
   │
-  ├──→ Step 3 & 4: Extract metadata + Rate content (parallel)
+  ├──→ Step 3: Run extractor plugins in config order, merge outputs
+  │         ├──→ ${hash}.original.json（无缓存，直接解析）
   │         ├──→ ${hash}.meta.json
   │         └──→ ${hash}.rate.json
   │
-  ▼  Step 5: Generate YAML header
+  ▼  Step 4: Generate YAML header
   │
-   ▼  Step 6: Create target file → target_dir/${title}.md（同名按 hash 覆盖或加序号）
+  ▼  Step 5: Create target file → target_dir/${title}.md（同名按 hash 覆盖或加序号）
   │
-  ▼  Step 7: Cleanup intermediate files
+  ▼  Step 6: Each plugin clears its own temp cache
   │
   done
 ```
 
+### 输出日志
+
+每个文件只占一行，分两次写出：开处理时立刻打印 `[进度] 文件名`，处理结束后再补 `结果  耗时  原因（可选）`。这样长耗时期间也能看到当前进度，不会误以为卡住。合并后的一行格式为 `[进度] 文件名  结果  耗时  原因（可选）`：
+
+```
+[1/30] article.md  DONE  12.4s
+[2/30] too-short.md  SKIP  3ms  text too short: 42 chars < 200
+[3/30] broken.md  FAIL  8.1s  LLM failed after 3 retries: fetch failed
+```
+
+LLM 重试等细节不逐条打印，统一汇总到结尾的 `LLM: N calls, M retries`。
+
 ### 元数据标准
 
-每篇产出 `.meta.json`：
+LLM 产出的 `.meta.json`（`model` 由脚本后续注入，不在 LLM 输出中）：
 
 ```json
 {
   "title": "MoE架构：稀疏激活与大模型容量",
   "date": "2026-07-31T10:30:00+08:00",
   "auther": "科技兽",
-  "source": "原始文件名.md",
   "tags": ["大模型", "开源", "MoE"],
   "summary": "MoE架构通过稀疏激活在同等算力下实现更大模型容量。",
   "keywords": "MoE, 稀疏激活",
-  "aliases": ["Mixture of Experts", "混合专家"],
-  "model": "qwen2.5:3b"
+  "aliases": ["Mixture of Experts", "混合专家"]
 }
 ```
 
@@ -182,7 +233,8 @@ source_dir/*.md
 | `summary` | string | 是 | 1-2 句核心摘要（80-150字） |
 | `keywords` | string | 是 | 2-5 个关键词，逗号分隔 |
 | `aliases` | string[] | 是 | 标题核心实体的别名（缩写/简称/同义术语/英文译名） |
-| `model` | string | 是 | Ollama 模型名称 |
+
+`model` 不在此表中：它由 `MetaExtractor.transform()` 用 `getModel()` 注入，不属于 LLM 输出契约，因此**不要写进 schema**（校验发生在 transform 之前，写进去会导致 3 次重试必然失败）。
 
 ### 评分标准
 
@@ -196,6 +248,8 @@ source_dir/*.md
 }
 ```
 
+`ratings` 是透传的——schema 里定义几个维度就输出几个。`score` 恒为各维度均值，因此**只有一个维度时不返回 `ratings` 节点**，只写 `score`（避免 `ratings.value` 与 `score` 重复表达同一个数）：
+
 | 维度 | 含义 | 评分范围 |
 |------|------|---------|
 | `value` | 商业与市场价值 | 1-10 |
@@ -205,6 +259,10 @@ source_dir/*.md
 | `ethics` | 伦理合规与社会责任 | 1-10 |
 
 `score` 由脚本自动计算（五维平均值，保留一位小数），不由大模型产出。
+
+### frontmatter 类型约定
+
+生成 YAML 时无法获知字段类型，因此 **metas 统一按字符串写入**（`score: "3.8"` 而非 `score: 3.8`）。消费方需要数值时自行转换，sync 侧已按此约定处理：`score` 用 `parseFloat`、`score_threshold` 用 `parseFloat` 后再比较。新增消费方时不要依赖隐式类型转换。
 
 ### 缓存与幂等
 

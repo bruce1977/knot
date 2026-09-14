@@ -1,10 +1,5 @@
 const fs = require("fs");
 
-// ─── Constants ───────────────────────────────────────────────────────────────
-
-// Fields to skip from meta in YAML output (internal use only)
-const META_SKIP_FIELDS = new Set(["model"]);
-
 // ─── String Helpers ──────────────────────────────────────────────────────────
 
 // Sanitize a title for use as a filename: replace illegal chars and cap length.
@@ -123,71 +118,39 @@ function parseYamlValue(value) {
 
 // ─── YAML Frontmatter Generation ─────────────────────────────────────────────
 
-// Generate YAML frontmatter header from metadata and rating.
-// Merges with existing frontmatter if provided (new fields override old ones).
-// @param {Object} meta - metadata object
-// @param {Object} rate - rating object
-// @param {string} hash - content hash
-// @param {Object|null} existingHeader - existing frontmatter object to merge
+// Write a single key-value pair to YAML lines.
+// Handles nested objects and arrays.
+function writeYamlEntry(key, value, lines, indent = 0) {
+    if (value === null || value === undefined) return;
+    if (Array.isArray(value) && value.length === 0) return;
+    if (typeof value === "string" && value === "") return;
+
+    const prefix = "  ".repeat(indent);
+
+    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+        // Nested object
+        const entries = Object.entries(value).filter(([, v]) => v !== null && v !== undefined);
+        if (entries.length === 0) return;
+        lines.push(`${prefix}${key}:`);
+        for (const [subKey, subValue] of entries) {
+            writeYamlEntry(subKey, subValue, lines, indent + 1);
+        }
+    } else if (Array.isArray(value)) {
+        lines.push(`${prefix}${key}: ${yamlArr(value)}`);
+    } else {
+        lines.push(`${prefix}${key}: ${yamlStr(value)}`);
+    }
+}
+
+// Generate YAML frontmatter header from merged extraction results.
+// @param {Object} results - Merged results from all plugins
 // @returns {string} YAML frontmatter string (with --- delimiters)
-function generateYamlHeader(meta, rate, hash, existingHeader = null) {
+function generateYamlHeader(results) {
     const lines = ["---"];
-    const addedKeys = new Set();
 
-    // 1. Hash first
-    lines.push(`hash: ${yamlStr(hash)}`);
-    addedKeys.add("hash");
-
-    // 2. Meta fields
-    if (meta && typeof meta === "object") {
-        for (const [key, value] of Object.entries(meta)) {
-            if (META_SKIP_FIELDS.has(key)) continue;
-            if (value === null || value === undefined) continue;
-            if (Array.isArray(value) && value.length === 0) continue;
-            if (typeof value === "string" && value === "") continue;
-            lines.push(Array.isArray(value) ? `${key}: ${yamlArr(value)}` : `${key}: ${yamlStr(value)}`);
-            addedKeys.add(key);
-        }
-    }
-
-    // 3. Rate fields
-    if (rate && typeof rate === "object") {
-        for (const [key, value] of Object.entries(rate)) {
-            if (key === "model") continue;
-            if (value === null || value === undefined) continue;
-            if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-                // Nested object - skip if all values are null
-                const nonNullValues = Object.values(value).filter((v) => v !== null);
-                if (nonNullValues.length === 0) continue;
-                lines.push(`${key}:`);
-                for (const [subKey, subValue] of Object.entries(value)) {
-                    lines.push(`  ${subKey}: ${subValue}`);
-                }
-            } else {
-                lines.push(`${key}: ${value}`);
-            }
-            addedKeys.add(key);
-        }
-    }
-
-    // 4. Existing fields (only those not already added)
-    if (existingHeader && typeof existingHeader === "object") {
-        for (const [key, value] of Object.entries(existingHeader)) {
-            if (addedKeys.has(key)) continue;
-            if (value === null || value === undefined) continue;
-            if (Array.isArray(value) && value.length === 0) continue;
-            if (typeof value === "string" && value === "") continue;
-            if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-                const nonNullValues = Object.values(value).filter((v) => v !== null);
-                if (nonNullValues.length === 0) continue;
-                lines.push(`${key}:`);
-                for (const [subKey, subValue] of Object.entries(value)) {
-                    lines.push(`  ${subKey}: ${subValue}`);
-                }
-            } else {
-                lines.push(Array.isArray(value) ? `${key}: ${yamlArr(value)}` : `${key}: ${yamlStr(value)}`);
-            }
-        }
+    // Write all fields from merged results
+    for (const [key, value] of Object.entries(results)) {
+        writeYamlEntry(key, value, lines);
     }
 
     lines.push("---");
@@ -207,4 +170,4 @@ function loadJSON(filePath) {
 
 // ─── Exports ─────────────────────────────────────────────────────────────────
 
-module.exports = { generateYamlHeader, sanitizeTitle, loadJSON, parseFrontmatter, META_SKIP_FIELDS };
+module.exports = { generateYamlHeader, sanitizeTitle, loadJSON, parseFrontmatter, writeYamlEntry };
