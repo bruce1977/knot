@@ -1,14 +1,24 @@
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 // Characters that act as word separators in titles but should NOT differentiate articles.
 const TITLE_SEP_RE = /[|_\-,\，、:：;；·\/]/g;
 
+// Hash computation settings: 3 rounds of SHA-256, truncated to 12 hex chars.
+const HASH_ROUNDS = 3;
+const HASH_LENGTH = 12;
+
+// Markdown validation thresholds.
+const MIN_FILE_SIZE = 1024;        // 1KB
+const MIN_TEXT_LENGTH = 200;       // minimum 200 characters of plain text
+const MIN_CHINESE_RATIO = 0.1;    // Chinese character ratio >= 10%
+
 // ─── Async Utilities ─────────────────────────────────────────────────────────
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 // ─── Title Processing ────────────────────────────────────────────────────────
 
@@ -30,21 +40,103 @@ function titleKey(title) {
         .trim();
 }
 
+// ─── Content Hash ────────────────────────────────────────────────────────────
+
+// Compute a stable content hash by iterating SHA-256 multiple times.
+// Multiple rounds increase collision resistance for short hashes.
+function contentHash(content) {
+    let hash = content;
+    for (let round = 0; round < HASH_ROUNDS; round++) {
+        hash = crypto.createHash("sha256").update(hash).digest("hex");
+    }
+    return hash.slice(0, HASH_LENGTH);
+}
+
+// ─── Markdown Validation ────────────────────────────────────────────────────
+
+// Strip HTML tags, CSS blocks, JS blocks, and Markdown formatting to get plain text.
+function cleanContent(rawText) {
+    let text = rawText;
+    text = text.replace(/<style[\s\S]*?<\/style>/gi, "");
+    text = text.replace(/<script[\s\S]*?<\/script>/gi, "");
+    text = text.replace(/<[^>]+>/g, "");
+    text = text.replace(/\/\*[\s\S]*?\*\//g, "");
+    text = text.replace(/#[^{]*\{[^}]*\}/g, "");
+    text = text.replace(/```[\s\S]*?```/g, "");
+    text = text.replace(/`[^`]+`/g, "");
+    text = text.replace(/!\[.*?\]\(.*?\)/g, "");
+    text = text.replace(/\[([^\]]*)\]\(.*?\)/g, "$1");
+    text = text.replace(/[-*_]{3,}/g, "");
+    text = text.replace(/#+\s*/g, "");
+    return text.trim();
+}
+
+// Validate a markdown file: check file size, text length, and Chinese ratio.
+function validateMd(filePath) {
+    const errors = [];
+
+    // File size check
+    const stat = fs.statSync(filePath);
+    if (stat.size < MIN_FILE_SIZE) {
+        errors.push(`file too small: ${stat.size} bytes < ${MIN_FILE_SIZE}`);
+        return errors;
+    }
+
+    // Content cleaning and validation
+    const raw = fs.readFileSync(filePath, "utf-8");
+    const cleaned = cleanContent(raw);
+
+    // Text length check
+    if (cleaned.length < MIN_TEXT_LENGTH) {
+        errors.push(`text too short: ${cleaned.length} chars < ${MIN_TEXT_LENGTH}`);
+    }
+
+    // Chinese character ratio check
+    const chineseChars = cleaned.match(/[\u4e00-\u9fa5]/g) || [];
+    const ratio = chineseChars.length / cleaned.length;
+    if (ratio < MIN_CHINESE_RATIO) {
+        errors.push(`chinese ratio too low: ${(ratio * 100).toFixed(1)}% < ${MIN_CHINESE_RATIO * 100}%`);
+    }
+
+    return errors;
+}
+
+// Move invalid file to error directory with timestamp suffix to avoid overwrite.
+function moveToError(filePath, errorDir) {
+    if (!fs.existsSync(errorDir)) {
+        fs.mkdirSync(errorDir, { recursive: true });
+    }
+
+    const basename = path.basename(filePath);
+    const destination = path.join(errorDir, basename);
+
+    if (fs.existsSync(destination)) {
+        const ext = path.extname(basename);
+        const name = path.basename(basename, ext);
+        const destinationWithTimestamp = path.join(errorDir, `${name}_${Date.now()}${ext}`);
+        fs.renameSync(filePath, destinationWithTimestamp);
+        return destinationWithTimestamp;
+    }
+
+    fs.renameSync(filePath, destination);
+    return destination;
+}
+
 // ─── Data Helpers ────────────────────────────────────────────────────────────
 
 // Coerce a parsed value into a string array.
 // Handles JSON arrays and comma-separated strings.
-function toStrArray(v) {
-    if (Array.isArray(v)) return v.map(String).filter(Boolean);
-    if (typeof v === "string") {
-        return v.split(/[,，、]/).map((s) => s.trim()).filter(Boolean);
+function toStrArray(value) {
+    if (Array.isArray(value)) return value.map(String).filter(Boolean);
+    if (typeof value === "string") {
+        return value.split(/[,，、]/).map((item) => item.trim()).filter(Boolean);
     }
     return [];
 }
 
 // Coerce a parsed value to a number, or null when missing/invalid.
-function toNum(v) {
-    return typeof v === "number" ? v : null;
+function toNum(value) {
+    return typeof value === "number" ? value : null;
 }
 
 // ─── JSON Schema Validation ─────────────────────────────────────────────────
@@ -55,61 +147,61 @@ function toNum(v) {
 function validateSchema(data, schema) {
     const errors = [];
 
-    function validate(obj, s, path) {
+    function validate(obj, schemaNode, currentPath) {
         // Type check
-        if (s.type) {
+        if (schemaNode.type) {
             const actualType = Array.isArray(obj) ? "array" : typeof obj;
-            if (actualType !== s.type) {
-                errors.push(`${path}: expected type ${s.type}, got ${actualType}`);
-                return; // Skip further checks if type mismatches
+            if (actualType !== schemaNode.type) {
+                errors.push(`${currentPath}: expected type ${schemaNode.type}, got ${actualType}`);
+                return;
             }
         }
 
         // Required properties
-        if (s.required && typeof obj === "object" && !Array.isArray(obj)) {
-            for (const key of s.required) {
+        if (schemaNode.required && typeof obj === "object" && !Array.isArray(obj)) {
+            for (const key of schemaNode.required) {
                 if (obj[key] === undefined || obj[key] === null) {
-                    errors.push(`${path}.${key}: required property is missing`);
+                    errors.push(`${currentPath}.${key}: required property is missing`);
                 }
             }
         }
 
         // Property validation
-        if (s.properties && typeof obj === "object" && !Array.isArray(obj)) {
-            for (const [key, propSchema] of Object.entries(s.properties)) {
+        if (schemaNode.properties && typeof obj === "object" && !Array.isArray(obj)) {
+            for (const [key, propSchema] of Object.entries(schemaNode.properties)) {
                 if (obj[key] !== undefined && obj[key] !== null) {
-                    validate(obj[key], propSchema, `${path}.${key}`);
+                    validate(obj[key], propSchema, `${currentPath}.${key}`);
                 }
             }
         }
 
         // String validations
         if (typeof obj === "string") {
-            if (s.minLength !== undefined && obj.length < s.minLength) {
-                errors.push(`${path}: string length ${obj.length} < minLength ${s.minLength}`);
+            if (schemaNode.minLength !== undefined && obj.length < schemaNode.minLength) {
+                errors.push(`${currentPath}: string length ${obj.length} < minLength ${schemaNode.minLength}`);
             }
         }
 
         // Array validations
         if (Array.isArray(obj)) {
-            if (s.minItems !== undefined && obj.length < s.minItems) {
-                errors.push(`${path}: array length ${obj.length} < minItems ${s.minItems}`);
+            if (schemaNode.minItems !== undefined && obj.length < schemaNode.minItems) {
+                errors.push(`${currentPath}: array length ${obj.length} < minItems ${schemaNode.minItems}`);
             }
-            if (s.maxItems !== undefined && obj.length > s.maxItems) {
-                errors.push(`${path}: array length ${obj.length} > maxItems ${s.maxItems}`);
+            if (schemaNode.maxItems !== undefined && obj.length > schemaNode.maxItems) {
+                errors.push(`${currentPath}: array length ${obj.length} > maxItems ${schemaNode.maxItems}`);
             }
-            if (s.items) {
-                obj.forEach((item, i) => validate(item, s.items, `${path}[${i}]`));
+            if (schemaNode.items) {
+                obj.forEach((item, index) => validate(item, schemaNode.items, `${currentPath}[${index}]`));
             }
         }
 
         // Number validations
         if (typeof obj === "number") {
-            if (s.minimum !== undefined && obj < s.minimum) {
-                errors.push(`${path}: value ${obj} < minimum ${s.minimum}`);
+            if (schemaNode.minimum !== undefined && obj < schemaNode.minimum) {
+                errors.push(`${currentPath}: value ${obj} < minimum ${schemaNode.minimum}`);
             }
-            if (s.maximum !== undefined && obj > s.maximum) {
-                errors.push(`${path}: value ${obj} > maximum ${s.maximum}`);
+            if (schemaNode.maximum !== undefined && obj > schemaNode.maximum) {
+                errors.push(`${currentPath}: value ${obj} > maximum ${schemaNode.maximum}`);
             }
         }
     }
@@ -127,13 +219,13 @@ function validateWithSchema(data, schemaPath) {
 // ─── File Operations ─────────────────────────────────────────────────────────
 
 // Move file with cross-volume fallback (copy + delete).
-function moveFile(src, dst) {
+function moveFile(source, destination) {
     try {
-        fs.renameSync(src, dst);
+        fs.renameSync(source, destination);
     } catch (err) {
         if (err.code === "EXDEV") {
-            fs.writeFileSync(dst, fs.readFileSync(src));
-            fs.unlinkSync(src);
+            fs.writeFileSync(destination, fs.readFileSync(source));
+            fs.unlinkSync(source);
         } else {
             throw err;
         }
@@ -165,6 +257,11 @@ function getProfileDir() {
 module.exports = {
     // Constants
     TITLE_SEP_RE,
+    HASH_ROUNDS,
+    HASH_LENGTH,
+    MIN_FILE_SIZE,
+    MIN_TEXT_LENGTH,
+    MIN_CHINESE_RATIO,
 
     // Async
     sleep,
@@ -173,13 +270,19 @@ module.exports = {
     normalizeTitle,
     titleKey,
 
+    // Hash
+    contentHash,
+
+    // Validation
+    validateMd,
+    moveToError,
+    cleanContent,
+    validateSchema,
+    validateWithSchema,
+
     // Data
     toStrArray,
     toNum,
-
-    // Validation
-    validateSchema,
-    validateWithSchema,
 
     // File
     moveFile,

@@ -1,0 +1,29 @@
+{
+  "name": "knowledge-pipeline",
+  "version": "1.0.0",
+  "keywords": ["knowledge", "pipeline", "weknora", "metadata", "analysis", "sync", "archive"],
+  "description": "Knowledge base pipeline skill: init, analyze (metadata extraction + rating), sync to WeKnora, archive old files",
+  "main": "scripts/analyze_start.js",
+  "scripts": {
+    "init": "node --env-file=.env scripts/init_start.js",
+    "analyze": "node --env-file=.env scripts/analyze_start.js",
+    "sync": "node --env-file=.env scripts/weknora_start_to_sync.js",
+    "archive": "node --env-file=.env scripts/archive_start.js"
+  },
+  "author": "Bruce Jiang",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bruce1977/knot.git"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "files": [
+    "scripts/",
+    "prompts/",
+    "schemas/",
+    "SKILL.md",
+    "README.md"
+  ]
+}

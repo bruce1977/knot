@@ -1,0 +1,31 @@
+{
+  "analyze": {
+    "source_folder": "inbox",
+    "target_folder": "marked",
+    "batch_size": 30
+  },
+  "weknora": {
+    "source_folder": "marked",
+    "target_folder": "weknora",
+    "kb_id": "",
+    "wiki_kb_id": "",
+    "score_threshold": 3.5,
+    "concurrency": 1,
+    "submit_interval_ms": 30000,
+    "submit_timeout_seconds": 30,
+    "submit_wiki_timeout_seconds": 120,
+    "sync_enabled": true,
+    "custom_metas": {
+      "source": "$source",
+      "author": "$auther",
+      "aliases": "$aliases",
+      "score": "$score",
+      "channel": "wechat-mp"
+    }
+  },
+  "archive": {
+    "orginal_folder": "archived",
+    "target_folder": "marked",
+    "days": 90
+  }
+}

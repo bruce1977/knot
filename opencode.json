@@ -1,0 +1,68 @@
+{
+  "$schema": "https://opencode.ai/schema.json",
+  "name": "knowledge-pipeline",
+  "description": "知识库管线技能：初始化目录、文档分析（元数据提取+评分+合并）、同步导入 WeKnora、归档旧文件",
+  "version": "1.0.0",
+  "skills": {
+    "knowledge": {
+      "name": "knowledge",
+      "description": "知识库管线技能：初始化目录、文档分析（元数据提取+评分+合并）、同步导入 WeKnora、归档旧文件。通过不同命令选择功能。",
+      "location": "SKILL.md"
+    }
+  },
+  "commands": {
+    "init": {
+      "description": "初始化知识库目录结构",
+      "script": "node scripts/init_start.js <base_dir>"
+    },
+    "analyze": {
+      "description": "分析文档：元数据提取 + 五维评分 + 合并 frontmatter",
+      "script": "node scripts/analyze_start.js <source_dir> <target_dir> [batch_size]"
+    },
+    "sync": {
+      "description": "同步终稿导入 WeKnora 远程知识库",
+      "script": "node scripts/weknora_start_to_sync.js <source_dir> <target_dir> <config.json>"
+    },
+    "archive": {
+      "description": "按文件年龄归档旧文件",
+      "script": "node scripts/archive_start.js <source_dir> <target_dir> [days]"
+    }
+  },
+  "env": {
+    "KB_LLM_BASE_URL": {
+      "description": "LLM API 地址（OpenAI 兼容）",
+      "default": "http://localhost:11434/v1"
+    },
+    "KB_LLM_API_KEY": {
+      "description": "LLM API 密钥（Ollama 可留空）",
+      "default": ""
+    },
+    "KB_LLM_MODEL": {
+      "description": "默认模型（meta 和 rate 共用）",
+      "default": "qwen2.5:3b"
+    },
+    "KB_LLM_META_MODEL": {
+      "description": "元数据提取专用模型（可选，默认继承 KB_LLM_MODEL）"
+    },
+    "KB_LLM_RATE_MODEL": {
+      "description": "评分提取专用模型（可选，默认继承 KB_LLM_MODEL）"
+    },
+    "KB_LLM_TIMEOUT_MS": {
+      "description": "单次 LLM 请求超时（毫秒）",
+      "default": "120000"
+    },
+    "KB_LLM_PROVIDER": {
+      "description": "后端类型：auto/ollama/openai",
+      "default": "auto"
+    },
+    "PB_KNOWLEDGE_BASE_PATH": {
+      "description": "知识库根目录（sync 功能必填）"
+    },
+    "WEKNORA_BASE_URL": {
+      "description": "WeKnora API 地址（sync 功能必填）"
+    },
+    "WEKNORA_API_KEY": {
+      "description": "WeKnora API 密钥（sync 功能必填）"
+    }
+  }
+}

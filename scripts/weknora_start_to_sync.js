@@ -8,28 +8,41 @@ const REQUEST_TIMEOUT_MS = 30000;
 const SCRIPT_TIMEOUT_MS = parseInt(process.env.SYNC_SCRIPT_TIMEOUT_MS || "600000", 10);
 const PER_ARTICLE_TIMEOUT_MS = 60000;
 const PARSE_POLL_INTERVAL_MS = parseInt(process.env.SYNC_POLL_INTERVAL_MS || "1000", 10);
-const PARSE_POLL_TIMEOUT_MS = parseInt(process.env.SYNC_POLL_TIMEOUT_MS || "60000", 10);
+
 
 // ─── CLI Args & Config ──────────────────────────────────────────────────────
 
 const [, , sourceDirArg, targetDirArg, configPathParam] = process.argv;
 const profileDir = getProfileDir();
-const sourceDir = sourceDirArg || (profileDir ? `${profileDir}/marked` : null);
-const targetDir = targetDirArg || (profileDir ? `${profileDir}/weknora` : null);
+
+// Try to load config from profile if not provided via args
+let sourceDir = sourceDirArg;
+let targetDir = targetDirArg;
 let configPath = configPathParam;
+
+if ((!sourceDir || !targetDir || !configPath) && profileDir) {
+    const profileConfigPath = `${profileDir}/.config/config.json`;
+    if (fs.existsSync(profileConfigPath)) {
+        try {
+            const config = JSON.parse(fs.readFileSync(profileConfigPath, "utf-8"));
+            const weknoraConfig = config.weknora || {};
+            if (!sourceDir) sourceDir = `${profileDir}/${weknoraConfig.source_folder || "marked"}`;
+            if (!targetDir) targetDir = `${profileDir}/${weknoraConfig.target_folder || "weknora"}`;
+            if (!configPath) configPath = profileConfigPath;
+        } catch (e) {
+            // Ignore config loading errors
+        }
+    }
+}
+
+// Fallback to defaults
+if (!sourceDir) sourceDir = profileDir ? `${profileDir}/marked` : null;
+if (!targetDir) targetDir = profileDir ? `${profileDir}/weknora` : null;
 
 if (!sourceDir || !targetDir) {
     console.error("Usage: node weknora_start_to_sync.js <source_dir> <target_dir> <config.json|kb_id>");
     console.error("  Or set KB_DEFAULT_PROFILE environment variable to use default directories");
     process.exit(1);
-}
-
-// Try to load config from default profile if not provided
-if (!configPath && profileDir) {
-    const profileConfigPath = `${profileDir}/.config/config.json`;
-    if (fs.existsSync(profileConfigPath)) {
-        configPath = profileConfigPath;
-    }
 }
 
 if (!configPath) {
@@ -54,9 +67,10 @@ const kbId = syncCfg.kb_id || "";
 const wikiKbId = syncCfg.wiki_kb_id || null;
 const scoreThreshold = parseFloat(syncCfg.score_threshold || "0");
 const concurrency = Math.max(1, parseInt(syncCfg.concurrency || "1", 10));
-const fallbackInterval = parseInt(syncCfg.submit_interval_ms || "100", 10);
-const normalSubmitIntervalMs = parseInt(syncCfg.normal_submit_interval_ms || String(fallbackInterval), 10);
-const wikiSubmitIntervalMs = parseInt(syncCfg.wiki_submit_interval_ms || String(fallbackInterval), 10);
+const normalSubmitIntervalMs = parseInt(syncCfg.submit_interval_ms || "15000", 10);
+const batch_size = parseInt(syncCfg.batch_size || "0", 10);
+const submitTimeoutSec = parseInt(syncCfg.submit_timeout_seconds || "30", 10);
+const submitWikiTimeoutSec = parseInt(syncCfg.submit_wiki_timeout_seconds || "120", 10);
 const customMetasCfg = syncCfg.custom_metas || {};
 
 if (!kbId) { console.error("FATAL: kb_id is required in config"); process.exit(1); }
@@ -183,21 +197,23 @@ async function ensureTag(tagName, targetKbId) {
     if (!_tagCaches[targetKbId]) _tagCaches[targetKbId] = new Map();
     const cache = _tagCaches[targetKbId];
     if (cache.has(tagName)) return cache.get(tagName);
-    // 优先直接创建；weknora 本应在服务端幂等，这里仅在冲突(409)时补查
+    // Try to create directly; WeKnora should be idempotent server-side.
+    // Only fetch all tags on conflict (409) to find existing id.
     try {
         const created = await wkRequest("POST", apiBase + "/knowledge-bases/" + targetKbId + "/tags", { name: tagName });
         const id = created.data.id;
         cache.set(tagName, id);
         return id;
     } catch (err) {
-        // 已存在或并发冲突：全量拉取一次以定位已有 id（之后命中缓存不再拉取）
+        // Tag exists or concurrent conflict: fetch all tags to find existing id.
+        // After this, cache will be used and no more fetches needed.
         const all = await loadAllTags(targetKbId);
         const map = new Map(all.map((t) => [t.name, t.id]));
         _tagCaches[targetKbId] = map;
         if (map.has(tagName)) {
             return map.get(tagName);
         }
-        // 仍未找到：再尝试一次创建（应对瞬时失败）
+        // Still not found: try creating once more (handle transient failure)
         try {
             const created = await wkRequest("POST", apiBase + "/knowledge-bases/" + targetKbId + "/tags", { name: tagName });
             const id = created.data.id;
@@ -217,8 +233,8 @@ async function batchSetTags(updates, targetKbId) {
 
 // ─── Parse Polling ───────────────────────────────────────────────────────────
 
-async function waitForParse(knowledgeId) {
-    const deadline = Date.now() + PARSE_POLL_TIMEOUT_MS;
+async function waitForParse(knowledgeId, timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
         const res = await wkRequest("GET", apiBase + "/knowledge/" + knowledgeId);
         const status = res.data?.parse_status || "";
@@ -226,7 +242,8 @@ async function waitForParse(knowledgeId) {
         if (status === "failed" || status === "cancelled") throw new Error("parse_status=" + status);
         await sleep(PARSE_POLL_INTERVAL_MS);
     }
-    throw new Error("parse timed out");
+    const res = await wkRequest("GET", apiBase + "/knowledge/" + knowledgeId).catch(() => ({}));
+    throw new Error("parse timed out, last_status=" + (res.data?.parse_status || "unknown"));
 }
 
 // ─── Score ───────────────────────────────────────────────────────────────────
@@ -266,7 +283,12 @@ async function assignKnowledgeTags(knowledgeId, targetKbId, fields) {
     return tagIds.length;
 }
 
-async function processOne(file) {
+async function deleteKnowledge(knowledgeId) {
+    await wkRequest("DELETE", apiBase + "/knowledge/" + knowledgeId);
+}
+
+async function processOne(file, idx, total) {
+    const prefix = `[${idx + 1}/${total}]`;
     const srcPath = path.join(sourceDir, file);
     const content = fs.readFileSync(srcPath, "utf-8");
     const { fields, body } = parseFrontmatter(content);
@@ -276,23 +298,64 @@ async function processOne(file) {
 
     const { score, target } = selectTarget(fields);
     const targetKbId = target.kbId;
-    const intervalMs = target.label === "wiki" ? wikiSubmitIntervalMs : normalSubmitIntervalMs;
+    const intervalMs = normalSubmitIntervalMs;
+
+    const hash = typeof fields.hash === "string" ? fields.hash : "";
+
+    // Dedup: search by title
+    if (submitTitle) {
+        try {
+            const searchRes = await wkRequest("GET", apiBase + "/knowledge-bases/" + targetKbId + "/knowledge?search=" + encodeURIComponent(submitTitle) + "&page_size=10");
+            const items = searchRes.data || [];
+            const match = items.find(item => item.title === submitTitle);
+            if (match) {
+                const existingHash = match.custom_metadata?.hash || "";
+                if (existingHash === hash) {
+                    // Hash matches → already uploaded, skip
+                    console.log(`${prefix} DUP ${file}: hash=${hash}`);
+                    moveFile(srcPath, path.join(targetDir, file));
+                    return { status: "dup", file, score, label: target.label };
+                }
+                // No hash or hash mismatch → previous upload failed, delete and re-upload
+                console.log(`${prefix} RETRY ${file}: deleting existing id=${match.id}`);
+                await deleteKnowledge(match.id);
+                await sleep(intervalMs);
+            }
+        } catch (err) {
+            console.error(`${prefix} DEDUP! ${file}: ${err.message}`);
+        }
+    }
 
     try {
-        // Upload to target KB
         const uploadStart = Date.now();
+
+        // Upload to target KB
         const importRes = await wkRequest("POST", apiBase + "/knowledge-bases/" + targetKbId + "/knowledge/manual", {
             title: submitTitle, content: body, status: "publish",
         });
         const knowledgeId = importRes?.data?.id;
         if (!knowledgeId) throw new Error("no knowledge id returned");
-        await waitForParse(knowledgeId);
 
-        // PUT custom_metadata (do NOT put description, let WeKnora generate summary)
+        // Wait for vectorization to complete
+        const parseTimeoutMs = target.label === "wiki" ? submitWikiTimeoutSec * 1000 : submitTimeoutSec * 1000;
+        await waitForParse(knowledgeId, parseTimeoutMs);
+
+        // PUT custom_metadata after vectorization
         const putBody = buildKnowledgeUpdateBody(fields);
         if (Object.keys(putBody).length) {
-            await wkRequest("PUT", apiBase + "/knowledge/" + knowledgeId, putBody)
-                .catch(err => console.error(`  META! ${file}: ${err.message}`));
+            try {
+                await wkRequest("PUT", apiBase + "/knowledge/" + knowledgeId, putBody);
+                // Verify metadata was written
+                const verifyRes = await wkRequest("GET", apiBase + "/knowledge/" + knowledgeId);
+                const savedMeta = verifyRes?.data?.custom_metadata || {};
+                const expectedMeta = putBody.custom_metadata || {};
+                const metaOk = Object.keys(expectedMeta).every(k => savedMeta[k] === expectedMeta[k]);
+                if (!metaOk) {
+                    console.error(`${prefix} META MISMATCH ${file}: expected=${JSON.stringify(expectedMeta)} saved=${JSON.stringify(savedMeta)}`);
+                }
+            } catch (err) {
+                console.error(`${prefix} META! ${file}: ${err.message}`);
+            }
         }
 
         const uploadMs = Date.now() - uploadStart;
@@ -306,10 +369,10 @@ async function processOne(file) {
         // Wait for WeKnora to generate summary before processing next article
         await sleep(intervalMs);
 
-        console.log(`  SYNCED ${file} score=${score} tags=${tagCount} upload=${fmtMs(uploadMs)}`);
+        console.log(`${prefix} SYNCED ${file} score=${score} tags=${tagCount} upload=${fmtMs(uploadMs)}`);
         return { status: "synced", file, score, label: target.label, tags: tagCount, uploadMs };
     } catch (err) {
-        console.log(`  FAIL ${file}: ${err.message}`);
+        console.log(`${prefix} FAIL ${file}: ${err.message}`);
         throw err;
     }
 }
@@ -322,7 +385,7 @@ async function runConcurrent(items, concurrency, fn) {
     async function worker() {
         while (idx < items.length) {
             const i = idx++;
-            results[i] = await fn(items[i]);
+            results[i] = await fn(items[i], i);
         }
     }
     await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
@@ -336,22 +399,57 @@ function loadFiles() {
         console.error("Error: source directory not found: " + sourceDir);
         process.exit(1);
     }
-    const files = fs.readdirSync(sourceDir).filter(f => f.endsWith(".md")).sort();
-    if (files.length === 0) {
+    const allFiles = fs.readdirSync(sourceDir).filter(f => f.endsWith(".md")).sort();
+    if (allFiles.length === 0) {
         console.log("No .md files found, exiting.");
         process.exit(0);
+    }
+    const files = batch_size > 0 ? allFiles.slice(0, batch_size) : allFiles;
+    if (batch_size > 0 && allFiles.length > batch_size) {
+        console.log(`  batch_size=${batch_size}, total=${allFiles.length}, processing first ${batch_size}`);
     }
     return files;
 }
 
 function summarize(results) {
-    let synced = 0, skipped = 0, failed = 0;
+    let normalSynced = 0, normalSkipped = 0, normalFailed = 0;
+    let wikiSynced = 0, wikiSkipped = 0, wikiFailed = 0;
+    let totalNormalSyncMs = 0, totalNormalDupMs = 0;
+    let totalWikiSyncMs = 0, totalWikiDupMs = 0;
+
     for (const r of results) {
-        if (r.status === "synced") synced++;
-        else if (r.status === "dup") skipped++;
-        else failed++;
+        const isWiki = r.label === "wiki";
+        if (r.status === "synced") {
+            if (isWiki) {
+                wikiSynced++;
+                totalWikiSyncMs += r.uploadMs || 0;
+            } else {
+                normalSynced++;
+                totalNormalSyncMs += r.uploadMs || 0;
+            }
+        } else if (r.status === "dup") {
+            if (isWiki) {
+                wikiSkipped++;
+                totalWikiDupMs += r.uploadMs || 0;
+            } else {
+                normalSkipped++;
+                totalNormalDupMs += r.uploadMs || 0;
+            }
+        } else {
+            if (isWiki) wikiFailed++;
+            else normalFailed++;
+        }
     }
-    return { synced, skipped, failed };
+
+    const avgNormalSyncMs = normalSynced > 0 ? Math.round(totalNormalSyncMs / normalSynced) : 0;
+    const avgNormalDupMs = normalSkipped > 0 ? Math.round(totalNormalDupMs / normalSkipped) : 0;
+    const avgWikiSyncMs = wikiSynced > 0 ? Math.round(totalWikiSyncMs / wikiSynced) : 0;
+    const avgWikiDupMs = wikiSkipped > 0 ? Math.round(totalWikiDupMs / wikiSkipped) : 0;
+
+    return {
+        normalSynced, normalSkipped, normalFailed, avgNormalSyncMs, avgNormalDupMs,
+        wikiSynced, wikiSkipped, wikiFailed, avgWikiSyncMs, avgWikiDupMs,
+    };
 }
 
 async function main() {
@@ -366,17 +464,20 @@ async function main() {
 
     if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
 
-    console.log(`[sync] ${files.length} files, workers=${concurrency}, normal_interval=${fmtMs(normalSubmitIntervalMs)}, wiki_interval=${fmtMs(wikiSubmitIntervalMs)}, timeout=${fmtMs(scriptTimeoutMs)}`);
+    console.log(`[sync] ${files.length} files, workers=${concurrency}, interval=${fmtMs(normalSubmitIntervalMs)}, timeout=${fmtMs(scriptTimeoutMs)}`);
 
     try {
-        const results = await runConcurrent(files, concurrency, (f) =>
-            processOne(f)
+        const results = await runConcurrent(files, concurrency, (f, idx) =>
+            processOne(f, idx, files.length)
                 .catch(err => ({ status: "fail", file: f, error: err.message }))
         );
 
-        const { synced, skipped, failed } = summarize(results);
-        console.log(`\nDone. ${synced} synced, ${skipped} skipped, ${failed} failed (${fmtMs(Date.now() - startTime)})`);
-        if (failed > 0) process.exitCode = 1;
+        const summary = summarize(results);
+        console.log(`\nDone (${fmtMs(Date.now() - startTime)}).`);
+        console.log(`  normal: ${summary.normalSynced} synced (avg ${fmtMs(summary.avgNormalSyncMs)}), ${summary.normalSkipped} skipped (avg ${fmtMs(summary.avgNormalDupMs)}), ${summary.normalFailed} failed`);
+        console.log(`  wiki:   ${summary.wikiSynced} synced (avg ${fmtMs(summary.avgWikiSyncMs)}), ${summary.wikiSkipped} skipped (avg ${fmtMs(summary.avgWikiDupMs)}), ${summary.wikiFailed} failed`);
+        const totalFailed = summary.normalFailed + summary.wikiFailed;
+        if (totalFailed > 0) process.exitCode = 1;
 
     } finally {
         clearTimeout(timeout);

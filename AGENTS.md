@@ -75,3 +75,24 @@
 - LLM backend uses OpenAI-compatible API protocol
 - Supports both Ollama and OpenAI-compatible providers
 - Default model: qwen2.5:3b
+
+## Global Rules
+
+### Code Style
+
+1. **English Comments Only**: All code comments must be written in English. No Chinese or other non-English comments are allowed.
+
+2. **Descriptive Variable Names**: Use clear, descriptive variable names. Avoid single-letter abbreviations (e.g., `t`, `fm`, `s`, `r`) and cryptic shorthand. Examples:
+   - Use `timeout` instead of `t`
+   - Use `formattedMessage` instead of `fm`
+   - Use `source` instead of `src` (unless it's a well-known convention)
+   - Use `destination` instead of `dst`
+   - Use `index` instead of `i` (except in simple loop counters)
+   - Use `result` instead of `r`
+   - Use `error` instead of `err` is acceptable
+   - Use `filename` instead of `f`
+
+3. **Consistent Naming**: Follow existing naming conventions in the codebase:
+   - Use `camelCase` for variables and functions
+   - Use `PascalCase` for classes (if any)
+   - Use `UPPER_SNAKE_CASE` for constants

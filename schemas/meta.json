@@ -1,0 +1,55 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Metadata",
+    "type": "object",
+    "required": [
+        "title",
+        "auther",
+        "tags",
+        "summary",
+        "keywords",
+        "aliases",
+        "model"
+    ],
+    "properties": {
+        "title": {
+            "type": "string",
+            "minLength": 1
+        },
+        "date": {
+            "type": "string"
+        },
+        "auther": {
+            "type": "string"
+        },
+        "tags": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "minLength": 1
+            },
+            "minItems": 2,
+            "maxItems": 5
+        },
+        "summary": {
+            "type": "string",
+            "minLength": 20
+        },
+        "keywords": {
+            "type": "string",
+            "minLength": 1
+        },
+        "aliases": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "minLength": 1
+            },
+            "minItems": 1,
+            "maxItems": 10
+        },
+        "model": {
+            "type": "string"
+        }
+    }
+}

@@ -4,15 +4,35 @@ const extractMeta = require("./analyze_extract_meta");
 const extractRate = require("./analyze_extract_rate");
 const { generateYamlHeader, sanitizeTitle, loadJSON } = require("./analyze_frontmatter");
 const { stripFrontmatter, cleanWechatContent, getLlmStats } = require("./lib/llm");
-const { contentHash } = require("./lib/content_hash");
-const { writeJsonFile, getProfileDir } = require("./lib/common");
-const { validateMd, moveToError } = require("./lib/validate_md");
+const { contentHash, writeJsonFile, getProfileDir, validateMd, moveToError } = require("./lib/common");
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 const [, , sourceDirArg, targetDirArg, batchSizeArg] = process.argv;
 const profileDir = getProfileDir();
-const sourceDir = sourceDirArg || (profileDir ? `${profileDir}/inbox` : null);
-const targetDir = targetDirArg || (profileDir ? `${profileDir}/marked` : null);
+
+// Try to load config from profile if not provided via args
+let sourceDir = sourceDirArg;
+let targetDir = targetDirArg;
+let batchSize = batchSizeArg ? Number(batchSizeArg) : null;
+
+if ((!sourceDir || !targetDir || !batchSize) && profileDir) {
+    const configPath = `${profileDir}/.config/config.json`;
+    if (fs.existsSync(configPath)) {
+        try {
+            const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+            const analyzeConfig = config.analyze || {};
+            if (!sourceDir) sourceDir = `${profileDir}/${analyzeConfig.source_folder || "inbox"}`;
+            if (!targetDir) targetDir = `${profileDir}/${analyzeConfig.target_folder || "marked"}`;
+            if (!batchSize && analyzeConfig.batch_size) batchSize = analyzeConfig.batch_size;
+        } catch (e) {
+            // Ignore config loading errors
+        }
+    }
+}
+
+// Fallback to defaults
+if (!sourceDir) sourceDir = profileDir ? `${profileDir}/inbox` : null;
+if (!targetDir) targetDir = profileDir ? `${profileDir}/marked` : null;
 
 if (!sourceDir || !targetDir) {
     console.error("Usage: node analyze_start.js <source_dir> <target_dir> [batch_size]");
@@ -22,7 +42,7 @@ if (!sourceDir || !targetDir) {
 
 process.env.KB_PROFILE_DIR = profileDir;
 
-const BATCH_SIZE = Number(batchSizeArg) || 30;
+const BATCH_SIZE = batchSize || 30;
 const BATCH_TIMEOUT_MS = 300000 * BATCH_SIZE;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
