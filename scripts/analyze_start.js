@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const extractMeta = require("./analyze_extract_meta");
 const extractRate = require("./analyze_extract_rate");
-const { generateYamlHeader, sanitizeTitle, loadJSON } = require("./analyze_frontmatter");
+const { generateYamlHeader, sanitizeTitle, loadJSON, parseFrontmatter } = require("./analyze_frontmatter");
 const { stripFrontmatter, cleanWechatContent, getLlmStats } = require("./lib/llm");
 const { contentHash, writeJsonFile, getProfileDir, validateMd, moveToError } = require("./lib/common");
 
@@ -119,7 +119,15 @@ async function processFile(filename) {
             const rate = loadJSON(ratePath);
             if (!rate) throw new Error(`failed to load ${ratePath}`);
 
-            const metaHeader = generateYamlHeader(meta, rate, hash);
+            // Parse existing frontmatter from source file for merging
+            let existingHeader = null;
+            const raw = fs.readFileSync(filePath, "utf-8");
+            const fmMatch = raw.match(/^---\n([\s\S]*?)\n---/);
+            if (fmMatch) {
+                existingHeader = parseFrontmatter(fmMatch[0]);
+            }
+
+            const metaHeader = generateYamlHeader(meta, rate, hash, existingHeader);
             if (!fs.existsSync(targetDir)) {
                 fs.mkdirSync(targetDir, { recursive: true });
             }

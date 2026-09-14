@@ -28,48 +28,155 @@ function yamlArr(arr) {
     return "[" + arr.map((item) => JSON.stringify(String(item))).join(", ") + "]";
 }
 
+// ─── YAML Parsing ────────────────────────────────────────────────────────────
+
+// Parse simple YAML frontmatter into an object.
+// Supports: string, number, boolean, array, nested objects.
+function parseFrontmatter(content) {
+    const match = content.match(/^---\n([\s\S]*?)\n---/);
+    if (!match) return null;
+
+    const lines = match[1].split("\n");
+    const result = {};
+    let currentKey = null;
+    let currentIndent = 0;
+    let nestedObj = null;
+
+    for (const line of lines) {
+        const indentMatch = line.match(/^(\s*)/);
+        const indent = indentMatch ? indentMatch[1].length : 0;
+
+        // Handle nested objects
+        if (currentKey && indent > currentIndent && nestedObj) {
+            const kvMatch = line.match(/^\s+(\w+):\s*(.*)$/);
+            if (kvMatch) {
+                nestedObj[kvMatch[1]] = parseYamlValue(kvMatch[2]);
+                continue;
+            }
+        }
+
+        // Reset nested object if we're back to top level
+        if (nestedObj && indent <= currentIndent) {
+            result[currentKey] = nestedObj;
+            nestedObj = null;
+        }
+
+        const kvMatch = line.match(/^(\w+):\s*(.*)$/);
+        if (kvMatch) {
+            const key = kvMatch[1];
+            const value = kvMatch[2];
+
+            // Check if this starts a nested object (value is empty)
+            if (value === "" || value === "|") {
+                currentKey = key;
+                currentIndent = indent;
+                nestedObj = {};
+            } else {
+                result[key] = parseYamlValue(value);
+                currentKey = null;
+                nestedObj = null;
+            }
+        }
+    }
+
+    // Don't forget the last nested object
+    if (nestedObj && currentKey) {
+        result[currentKey] = nestedObj;
+    }
+
+    return result;
+}
+
+// Parse a YAML value string into appropriate JS type.
+function parseYamlValue(value) {
+    const trimmed = value.trim();
+
+    // Array
+    if (trimmed.startsWith("[")) {
+        try {
+            return JSON.parse(trimmed);
+        } catch {
+            return trimmed;
+        }
+    }
+
+    // Number
+    if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
+        return Number(trimmed);
+    }
+
+    // Boolean
+    if (trimmed === "true") return true;
+    if (trimmed === "false") return false;
+
+    // Null
+    if (trimmed === "null" || trimmed === "~") return null;
+
+    // String (remove quotes)
+    if ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+        (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+        return trimmed.slice(1, -1);
+    }
+
+    return trimmed;
+}
+
 // ─── YAML Frontmatter Generation ─────────────────────────────────────────────
 
 // Generate YAML frontmatter header from metadata and rating.
+// Merges with existing frontmatter if provided (new fields override old ones).
 // @param {Object} meta - metadata object
 // @param {Object} rate - rating object
 // @param {string} hash - content hash
+// @param {Object|null} existingHeader - existing frontmatter object to merge
 // @returns {string} YAML frontmatter string (with --- delimiters)
-function generateYamlHeader(meta, rate, hash) {
-    const lines = ["---"];
+function generateYamlHeader(meta, rate, hash, existingHeader = null) {
+    // Merge: existing <- meta <- rate <- hash (priority: later wins)
+    const merged = {};
 
-    // Hash
-    lines.push(`hash: ${yamlStr(hash)}`);
+    // Start with existing frontmatter
+    if (existingHeader && typeof existingHeader === "object") {
+        for (const [key, value] of Object.entries(existingHeader)) {
+            merged[key] = value;
+        }
+    }
 
-    // Meta fields (dynamic)
+    // Add meta fields (override existing)
     if (meta && typeof meta === "object") {
         for (const [key, value] of Object.entries(meta)) {
             if (META_SKIP_FIELDS.has(key)) continue;
-            if (Array.isArray(value)) {
-                lines.push(`${key}: ${yamlArr(value)}`);
-            } else {
-                lines.push(`${key}: ${yamlStr(value)}`);
-            }
+            merged[key] = value;
         }
     }
 
-    // Rate fields (dynamic)
+    // Add rate fields (override existing)
     if (rate && typeof rate === "object") {
         for (const [key, value] of Object.entries(rate)) {
             if (key === "model") continue;
-            if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-                // Nested object like ratings
-                lines.push(`${key}:`);
-                for (const [subKey, subValue] of Object.entries(value)) {
-                    lines.push(`  ${subKey}: ${subValue}`);
-                }
-            } else {
-                lines.push(`${key}: ${value}`);
-            }
+            merged[key] = value;
         }
     }
 
+    // Hash always overrides
+    merged.hash = hash;
+
+    // Generate YAML
+    const lines = ["---"];
+    for (const [key, value] of Object.entries(merged)) {
+        if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+            // Nested object
+            lines.push(`${key}:`);
+            for (const [subKey, subValue] of Object.entries(value)) {
+                lines.push(`  ${subKey}: ${subValue}`);
+            }
+        } else if (Array.isArray(value)) {
+            lines.push(`${key}: ${yamlArr(value)}`);
+        } else {
+            lines.push(`${key}: ${yamlStr(value)}`);
+        }
+    }
     lines.push("---");
+
     return lines.join("\n");
 }
 
@@ -86,4 +193,4 @@ function loadJSON(filePath) {
 
 // ─── Exports ─────────────────────────────────────────────────────────────────
 
-module.exports = { generateYamlHeader, sanitizeTitle, loadJSON, META_SKIP_FIELDS };
+module.exports = { generateYamlHeader, sanitizeTitle, loadJSON, parseFrontmatter, META_SKIP_FIELDS };
