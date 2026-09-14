@@ -1,58 +1,11 @@
 {
-    "$schema": "http://json-schema.org/draft-07/schema#",
-    "title": "Rating",
-    "description": "Schema for article rating extraction",
-    "type": "object",
-    "required": [
-        "ratings",
-        "score",
-        "model"
-    ],
-    "properties": {
-        "ratings": {
-            "type": "object",
-            "required": [
-                "value",
-                "tech",
-                "public",
-                "academic",
-                "ethics"
-            ],
-            "properties": {
-                "value": {
-                    "type": "number",
-                    "minimum": 1,
-                    "maximum": 10
-                },
-                "tech": {
-                    "type": "number",
-                    "minimum": 1,
-                    "maximum": 10
-                },
-                "public": {
-                    "type": "number",
-                    "minimum": 1,
-                    "maximum": 10
-                },
-                "academic": {
-                    "type": "number",
-                    "minimum": 1,
-                    "maximum": 10
-                },
-                "ethics": {
-                    "type": "number",
-                    "minimum": 1,
-                    "maximum": 10
-                }
-            }
-        },
-        "score": {
-            "type": "number",
-            "minimum": 1,
-            "maximum": 10
-        },
-        "model": {
-            "type": "string"
-        }
-    }
+    "ratings": {
+        "value": ["number", 1, 10],
+        "tech": ["number", 1, 10],
+        "public": ["number", 1, 10],
+        "academic": ["number", 1, 10],
+        "ethics": ["number", 1, 10]
+    },
+    "score": ["number", 1, 10],
+    "model": "string"
 }

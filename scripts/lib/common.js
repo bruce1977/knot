@@ -141,67 +141,78 @@ function toNum(value) {
 
 // ─── JSON Schema Validation ─────────────────────────────────────────────────
 
-// Simple JSON Schema validator supporting subset of draft-07.
-// Supports: type, required, properties, additionalProperties,
-//           minLength, minItems, maxItems, minimum, maximum, items
+// Minimal schema validator.
+// Format:
+//   "string"            - required string (minLength 1)
+//   ["string", min]     - string with minLength
+//   ["number", min, max] - number with range
+//   ["array", min, max]  - array with item count range
+//   { "key": ... }       - nested object (all keys required)
 function validateSchema(data, schema) {
     const errors = [];
 
     function validate(obj, schemaNode, currentPath) {
-        // Type check
-        if (schemaNode.type) {
-            const actualType = Array.isArray(obj) ? "array" : typeof obj;
-            if (actualType !== schemaNode.type) {
-                errors.push(`${currentPath}: expected type ${schemaNode.type}, got ${actualType}`);
+        // String shorthand: "string" or ["string", minLength]
+        if (schemaNode === "string") {
+            if (typeof obj !== "string") {
+                errors.push(`${currentPath}: expected string, got ${typeof obj}`);
+            } else if (obj.length === 0) {
+                errors.push(`${currentPath}: string is empty`);
+            }
+            return;
+        }
+        if (Array.isArray(schemaNode) && schemaNode[0] === "string") {
+            if (typeof obj !== "string") {
+                errors.push(`${currentPath}: expected string, got ${typeof obj}`);
+            } else if (schemaNode[1] !== undefined && obj.length < schemaNode[1]) {
+                errors.push(`${currentPath}: string length ${obj.length} < ${schemaNode[1]}`);
+            }
+            return;
+        }
+
+        // Number shorthand: ["number", min, max]
+        if (Array.isArray(schemaNode) && schemaNode[0] === "number") {
+            if (typeof obj !== "number") {
+                errors.push(`${currentPath}: expected number, got ${typeof obj}`);
+            } else {
+                if (schemaNode[1] !== undefined && obj < schemaNode[1]) {
+                    errors.push(`${currentPath}: value ${obj} < ${schemaNode[1]}`);
+                }
+                if (schemaNode[2] !== undefined && obj > schemaNode[2]) {
+                    errors.push(`${currentPath}: value ${obj} > ${schemaNode[2]}`);
+                }
+            }
+            return;
+        }
+
+        // Array shorthand: ["array", minItems, maxItems]
+        if (Array.isArray(schemaNode) && schemaNode[0] === "array") {
+            if (!Array.isArray(obj)) {
+                errors.push(`${currentPath}: expected array, got ${typeof obj}`);
+            } else {
+                if (schemaNode[1] !== undefined && obj.length < schemaNode[1]) {
+                    errors.push(`${currentPath}: array length ${obj.length} < ${schemaNode[1]}`);
+                }
+                if (schemaNode[2] !== undefined && obj.length > schemaNode[2]) {
+                    errors.push(`${currentPath}: array length ${obj.length} > ${schemaNode[2]}`);
+                }
+            }
+            return;
+        }
+
+        // Object: nested schema
+        if (typeof schemaNode === "object" && schemaNode !== null && !Array.isArray(schemaNode)) {
+            if (typeof obj !== "object" || obj === null || Array.isArray(obj)) {
+                errors.push(`${currentPath}: expected object, got ${typeof obj}`);
                 return;
             }
-        }
-
-        // Required properties
-        if (schemaNode.required && typeof obj === "object" && !Array.isArray(obj)) {
-            for (const key of schemaNode.required) {
+            // All keys in schema are required
+            for (const [key, subSchema] of Object.entries(schemaNode)) {
                 if (obj[key] === undefined || obj[key] === null) {
                     errors.push(`${currentPath}.${key}: required property is missing`);
+                } else {
+                    validate(obj[key], subSchema, `${currentPath}.${key}`);
                 }
-            }
-        }
-
-        // Property validation
-        if (schemaNode.properties && typeof obj === "object" && !Array.isArray(obj)) {
-            for (const [key, propSchema] of Object.entries(schemaNode.properties)) {
-                if (obj[key] !== undefined && obj[key] !== null) {
-                    validate(obj[key], propSchema, `${currentPath}.${key}`);
-                }
-            }
-        }
-
-        // String validations
-        if (typeof obj === "string") {
-            if (schemaNode.minLength !== undefined && obj.length < schemaNode.minLength) {
-                errors.push(`${currentPath}: string length ${obj.length} < minLength ${schemaNode.minLength}`);
-            }
-        }
-
-        // Array validations
-        if (Array.isArray(obj)) {
-            if (schemaNode.minItems !== undefined && obj.length < schemaNode.minItems) {
-                errors.push(`${currentPath}: array length ${obj.length} < minItems ${schemaNode.minItems}`);
-            }
-            if (schemaNode.maxItems !== undefined && obj.length > schemaNode.maxItems) {
-                errors.push(`${currentPath}: array length ${obj.length} > maxItems ${schemaNode.maxItems}`);
-            }
-            if (schemaNode.items) {
-                obj.forEach((item, index) => validate(item, schemaNode.items, `${currentPath}[${index}]`));
-            }
-        }
-
-        // Number validations
-        if (typeof obj === "number") {
-            if (schemaNode.minimum !== undefined && obj < schemaNode.minimum) {
-                errors.push(`${currentPath}: value ${obj} < minimum ${schemaNode.minimum}`);
-            }
-            if (schemaNode.maximum !== undefined && obj > schemaNode.maximum) {
-                errors.push(`${currentPath}: value ${obj} > maximum ${schemaNode.maximum}`);
             }
         }
     }
