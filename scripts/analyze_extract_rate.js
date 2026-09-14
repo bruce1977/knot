@@ -77,18 +77,21 @@ function buildRetryPrompt(retryTag, errors) {
 // ─── Rating Construction ─────────────────────────────────────────────────────
 
 function buildRate(parsed) {
-    const ratings = {
-        value: toNum(parsed.value),
-        tech: toNum(parsed.tech),
-        public: toNum(parsed.public),
-        academic: toNum(parsed.academic),
-        ethics: toNum(parsed.ethics),
-    };
+    const ratings = {};
+    const numericValues = [];
+
+    // Extract all numeric fields as ratings
+    for (const [key, value] of Object.entries(parsed)) {
+        if (key === "model" || key === "score") continue;
+        if (typeof value === "number") {
+            ratings[key] = value;
+            numericValues.push(value);
+        }
+    }
 
     // Compute score as average of all rating dimensions
-    const values = Object.values(ratings).filter((v) => v !== null);
-    const score = values.length > 0
-        ? Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10
+    const score = numericValues.length > 0
+        ? Math.round((numericValues.reduce((a, b) => a + b, 0) / numericValues.length) * 10) / 10
         : null;
 
     return { ratings, score, model: MODEL };
