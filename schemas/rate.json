@@ -3,5 +3,6 @@
     "tech": ["number", 1, 10],
     "public": ["number", 1, 10],
     "academic": ["number", 1, 10],
-    "ethics": ["number", 1, 10]
+    "ethics": ["number", 1, 10],
+    "score?": ["number", 0, 10]
 }
