@@ -41,8 +41,18 @@ function loadSchema(name) {
     return path.join(getCustomDirs().schemaDir, name + ".json");
 }
 
-const SCHEMA_PATH = loadSchema("meta");
-const prompts = loadPrompt("meta");
+// Lazy: loaded after KB_PROFILE_DIR is set
+let _schemaPathCache = null;
+function getSchemaPath() {
+    if (!_schemaPathCache) _schemaPathCache = loadSchema("meta");
+    return _schemaPathCache;
+}
+
+let _promptsCache = null;
+function getPrompts() {
+    if (!_promptsCache) _promptsCache = loadPrompt("meta");
+    return _promptsCache;
+}
 
 // Per-process nonce: unique per invocation, defeats Ollama serving cached completions.
 function genNonce() {
@@ -52,13 +62,13 @@ function genNonce() {
 // ─── Prompt Building ─────────────────────────────────────────────────────────
 
 function buildPrompt(content) {
-    const userPrompt = prompts.user.replace("{{content}}", content.slice(0, 8000));
+    const userPrompt = getPrompts().user.replace("{{content}}", content.slice(0, 8000));
     return `[run-id:${genNonce()}]\n\n${userPrompt}`;
 }
 
 function buildRetryPrompt(retryTag, errors) {
     const errorList = errors.map((e) => `- ${e}`).join("\n");
-    return prompts.retry
+    return getPrompts().retry
         .replace("{{retry_tag}}", retryTag)
         .replace("{{errors}}", errorList);
 }
@@ -104,7 +114,7 @@ async function extractWithRetry(content) {
 
         let raw;
         try {
-            raw = await llmChat(prompts.system, userPrompt, MODEL, { temperature });
+            raw = await llmChat(getPrompts().system, userPrompt, MODEL, { temperature });
         } catch (e) {
             if (attempt < MAX_ATTEMPTS) {
                 await sleep(1000);
@@ -122,8 +132,10 @@ async function extractWithRetry(content) {
         }
 
         // Schema validation
-        const schemaErrors = validateWithSchema(candidate, SCHEMA_PATH);
+        const schemaPath = getSchemaPath();
+        const schemaErrors = validateWithSchema(candidate, schemaPath);
         if (schemaErrors.length > 0) {
+            console.log(`... [meta] schema path: ${schemaPath}`);
             lastErrors = schemaErrors;
             continue;
         }
