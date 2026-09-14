@@ -222,19 +222,36 @@ function validateSchema(data, schema) {
                 errors.push(`${currentPath}: expected object, got ${typeof obj}`);
                 return;
             }
-            for (const [key, subSchema] of Object.entries(actual)) {
-                const keyOptional = key.endsWith("?");
-                const actualKey = keyOptional ? key.slice(0, -1) : key;
-                if (keyOptional) {
-                    // Optional field: skip if not present
-                    if (obj[actualKey] !== undefined && obj[actualKey] !== null) {
-                        validate(obj[actualKey], subSchema, `${currentPath}.${actualKey}`);
-                    }
-                } else {
-                    if (obj[actualKey] === undefined || obj[actualKey] === null) {
-                        errors.push(`${currentPath}.${actualKey}: required property is missing`);
+
+            const hasWildcard = "*" in actual;
+
+            for (const [key, value] of Object.entries(obj)) {
+                if (hasWildcard) {
+                    // Wildcard: validate all fields against the wildcard schema
+                    validate(value, actual["*"], `${currentPath}.${key}`);
+                } else if (key in actual) {
+                    const subSchema = actual[key];
+                    const keyOptional = key.endsWith("?");
+                    const actualKey = keyOptional ? key.slice(0, -1) : key;
+                    if (keyOptional) {
+                        if (value !== undefined && value !== null) {
+                            validate(value, subSchema, `${currentPath}.${actualKey}`);
+                        }
                     } else {
-                        validate(obj[actualKey], subSchema, `${currentPath}.${actualKey}`);
+                        validate(value, subSchema, `${currentPath}.${actualKey}`);
+                    }
+                }
+                // Unknown keys without wildcard are ignored (pass-through)
+            }
+
+            // Check required keys (non-wildcard, non-optional)
+            if (!hasWildcard) {
+                for (const [key, subSchema] of Object.entries(actual)) {
+                    if (key === "*") continue;
+                    const keyOptional = key.endsWith("?");
+                    const actualKey = keyOptional ? key.slice(0, -1) : key;
+                    if (!keyOptional && (obj[actualKey] === undefined || obj[actualKey] === null)) {
+                        errors.push(`${currentPath}.${actualKey}: required property is missing`);
                     }
                 }
             }

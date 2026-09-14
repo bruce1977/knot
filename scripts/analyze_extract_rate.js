@@ -77,25 +77,21 @@ function buildRetryPrompt(retryTag, errors) {
 // ─── Rating Construction ─────────────────────────────────────────────────────
 
 function buildRate(parsed) {
-    const result = {};
-    let sum = 0;
-    let count = 0;
+    const ratings = {
+        value: toNum(parsed.value),
+        tech: toNum(parsed.tech),
+        public: toNum(parsed.public),
+        academic: toNum(parsed.academic),
+        ethics: toNum(parsed.ethics),
+    };
 
-    for (const [key, value] of Object.entries(parsed)) {
-        if (key === "model") continue;
-        result[key] = value;
-        if (typeof value === "number") {
-            sum += value;
-            count++;
-        }
-    }
+    // Compute score as average of all rating dimensions
+    const values = Object.values(ratings).filter((v) => v !== null);
+    const score = values.length > 0
+        ? Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10
+        : null;
 
-    // Compute average score from all numeric fields
-    if (count > 0) {
-        result.score = Math.round((sum / count) * 10) / 10;
-    }
-
-    return result;
+    return { ratings, score, model: MODEL };
 }
 
 // ─── LLM Extraction with Retry ──────────────────────────────────────────────
