@@ -76,15 +76,14 @@ function buildRetryPrompt(retryTag, errors) {
 // ─── Metadata Construction ───────────────────────────────────────────────────
 
 function buildMeta(parsed) {
-    // Simplified: only 4 fields
-    const rawKeywords = String(parsed.keywords || "").trim();
-
-    return {
-        title: normalizeTitle(parsed.title || ""),
-        tags: toStrArray(parsed.tags),
-        summary: String(parsed.summary || ""),
-        keywords: rawKeywords,
-    };
+    // Dynamic: pass through all fields from LLM output
+    // Schema validation will ensure required fields are present
+    const result = {};
+    for (const [key, value] of Object.entries(parsed)) {
+        if (key === "model") continue; // skip model field
+        result[key] = value;
+    }
+    return result;
 }
 
 // ─── LLM Extraction with Retry ──────────────────────────────────────────────

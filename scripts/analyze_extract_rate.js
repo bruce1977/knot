@@ -77,24 +77,13 @@ function buildRetryPrompt(retryTag, errors) {
 // ─── Rating Construction ─────────────────────────────────────────────────────
 
 function buildRate(parsed) {
-    // Support both old schema (ratings.value, etc.) and new simplified schema (score only)
-    if (typeof parsed.score === "number") {
-        return { score: parsed.score, model: MODEL };
+    // Dynamic: pass through all fields from LLM output
+    const result = {};
+    for (const [key, value] of Object.entries(parsed)) {
+        if (key === "model") continue;
+        result[key] = value;
     }
-
-    // Fallback: compute score from ratings object
-    const ratings = {
-        value: toNum(parsed.value),
-        tech: toNum(parsed.tech),
-        public: toNum(parsed.public),
-        academic: toNum(parsed.academic),
-        ethics: toNum(parsed.ethics),
-    };
-
-    const sum = ratings.value + ratings.tech + ratings.public + ratings.academic + ratings.ethics;
-    const score = Math.round((sum / 5) * 10) / 10;
-
-    return { ratings, score, model: MODEL };
+    return result;
 }
 
 // ─── LLM Extraction with Retry ──────────────────────────────────────────────
