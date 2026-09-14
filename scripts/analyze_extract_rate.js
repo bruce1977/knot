@@ -12,29 +12,33 @@ const DEFAULT_PROMPT_DIR = path.join(SKILL_DIR, "prompts");
 const DEFAULT_SCHEMA_DIR = path.join(SKILL_DIR, "schemas");
 const MAX_ATTEMPTS = 3;
 
-// Resolve custom dirs from profile
+// Resolve custom dirs from profile (lazy: called after KB_PROFILE_DIR is set)
+let _dirsCache = null;
 function getCustomDirs() {
+    if (_dirsCache) return _dirsCache;
     const profileDir = process.env.KB_PROFILE_DIR;
-    if (!profileDir) return { promptDir: DEFAULT_PROMPT_DIR, schemaDir: DEFAULT_SCHEMA_DIR };
+    if (!profileDir) {
+        _dirsCache = { promptDir: DEFAULT_PROMPT_DIR, schemaDir: DEFAULT_SCHEMA_DIR };
+        return _dirsCache;
+    }
     const cfgDir = path.join(profileDir, ".config");
     const promptDir = path.join(cfgDir, "prompts");
     const schemaDir = path.join(cfgDir, "schema");
-    return {
+    _dirsCache = {
         promptDir: fs.existsSync(promptDir) ? promptDir : DEFAULT_PROMPT_DIR,
         schemaDir: fs.existsSync(schemaDir) ? schemaDir : DEFAULT_SCHEMA_DIR,
     };
+    return _dirsCache;
 }
-
-const _dirs = getCustomDirs();
 
 // Load prompts (custom or default)
 function loadPrompt(name) {
-    return require(path.join(_dirs.promptDir, name + ".json"));
+    return require(path.join(getCustomDirs().promptDir, name + ".json"));
 }
 
 // Load schema (custom or default)
 function loadSchema(name) {
-    return path.join(_dirs.schemaDir, name + ".json");
+    return path.join(getCustomDirs().schemaDir, name + ".json");
 }
 
 const SCHEMA_PATH = loadSchema("rate");
