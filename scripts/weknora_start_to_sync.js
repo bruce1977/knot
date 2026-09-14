@@ -287,9 +287,17 @@ async function deleteKnowledge(knowledgeId) {
     await wkRequest("DELETE", apiBase + "/knowledge/" + knowledgeId);
 }
 
+let consecutiveParseTimeouts = 0;
+const MAX_CONSECUTIVE_PARSE_TIMEOUTS = 3;
+
 async function processOne(file, idx, total) {
     const prefix = `[${idx + 1}/${total}]`;
     const srcPath = path.join(sourceDir, file);
+
+    if (consecutiveParseTimeouts >= MAX_CONSECUTIVE_PARSE_TIMEOUTS) {
+        console.log(`${prefix} SKIP ${file}: too many consecutive parse timeouts, exiting`);
+        return { status: "fail", file, score: 0, label: "", error: "consecutive parse timeouts" };
+    }
     const content = fs.readFileSync(srcPath, "utf-8");
     const { fields, body } = parseFrontmatter(content);
 
@@ -338,7 +346,19 @@ async function processOne(file, idx, total) {
 
         // Wait for vectorization to complete
         const parseTimeoutMs = target.label === "wiki" ? submitWikiTimeoutSec * 1000 : submitTimeoutSec * 1000;
-        await waitForParse(knowledgeId, parseTimeoutMs);
+        try {
+            await waitForParse(knowledgeId, parseTimeoutMs);
+            consecutiveParseTimeouts = 0;
+        } catch (err) {
+            if (err.message.includes("parse timed out")) {
+                consecutiveParseTimeouts++;
+                console.error(`${prefix} PARSE TIMEOUT ${file} (${consecutiveParseTimeouts}/${MAX_CONSECUTIVE_PARSE_TIMEOUTS}): ${err.message}`);
+                if (consecutiveParseTimeouts >= MAX_CONSECUTIVE_PARSE_TIMEOUTS) {
+                    console.error(`${prefix} TOO MANY CONSECUTIVE PARSE TIMEOUTS, will exit after current batch`);
+                }
+            }
+            throw err;
+        }
 
         // PUT custom_metadata after vectorization
         const putBody = buildKnowledgeUpdateBody(fields);
@@ -384,6 +404,9 @@ async function runConcurrent(items, concurrency, fn) {
     let idx = 0;
     async function worker() {
         while (idx < items.length) {
+            if (consecutiveParseTimeouts >= MAX_CONSECUTIVE_PARSE_TIMEOUTS) {
+                break;
+            }
             const i = idx++;
             results[i] = await fn(items[i], i);
         }
