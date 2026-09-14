@@ -249,8 +249,12 @@ async function waitForParse(knowledgeId, timeoutMs) {
 // ─── Score ───────────────────────────────────────────────────────────────────
 
 function pickTargetKB(score) {
-    if (wikiKbId && scoreThreshold > 0 && score >= scoreThreshold) {
-        return { kbId: wikiKbId, label: "wiki" };
+    // score_threshold=0: all articles go to wiki
+    // score_threshold=10: no articles go to wiki
+    if (wikiKbId && scoreThreshold < 10) {
+        if (scoreThreshold === 0 || score >= scoreThreshold) {
+            return { kbId: wikiKbId, label: "wiki" };
+        }
     }
     return { kbId: kbId, label: "normal" };
 }
