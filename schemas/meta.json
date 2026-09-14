@@ -1,10 +1,6 @@
 {
     "title": ["string", 1],
-    "date": "string",
-    "auther": "string",
     "tags": ["array", 2, 5],
     "summary": ["string", 20],
-    "keywords": "string",
-    "aliases": ["array", 1, 10],
-    "model": "string"
+    "keywords": "string"
 }
