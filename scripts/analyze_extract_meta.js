@@ -77,10 +77,8 @@ function buildRetryPrompt(retryTag, errors) {
 
 function buildMeta(parsed) {
     // Dynamic: pass through all fields from LLM output
-    // Skip empty strings for optional fields (LLM should omit, not output "")
     const result = {};
     for (const [key, value] of Object.entries(parsed)) {
-        if (typeof value === "string" && value === "") continue;
         result[key] = value;
     }
     // Add model field
