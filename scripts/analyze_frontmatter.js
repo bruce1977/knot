@@ -131,52 +131,66 @@ function parseYamlValue(value) {
 // @param {Object|null} existingHeader - existing frontmatter object to merge
 // @returns {string} YAML frontmatter string (with --- delimiters)
 function generateYamlHeader(meta, rate, hash, existingHeader = null) {
-    // Merge: existing <- meta <- rate <- hash (priority: later wins)
-    const merged = {};
+    const lines = ["---"];
+    const addedKeys = new Set();
 
-    // Start with existing frontmatter
-    if (existingHeader && typeof existingHeader === "object") {
-        for (const [key, value] of Object.entries(existingHeader)) {
-            merged[key] = value;
-        }
-    }
+    // 1. Hash first
+    lines.push(`hash: ${yamlStr(hash)}`);
+    addedKeys.add("hash");
 
-    // Add meta fields (override existing)
+    // 2. Meta fields
     if (meta && typeof meta === "object") {
         for (const [key, value] of Object.entries(meta)) {
             if (META_SKIP_FIELDS.has(key)) continue;
-            merged[key] = value;
+            if (value === null || value === undefined) continue;
+            if (Array.isArray(value) && value.length === 0) continue;
+            if (typeof value === "string" && value === "") continue;
+            lines.push(Array.isArray(value) ? `${key}: ${yamlArr(value)}` : `${key}: ${yamlStr(value)}`);
+            addedKeys.add(key);
         }
     }
 
-    // Add rate fields (override existing)
+    // 3. Rate fields
     if (rate && typeof rate === "object") {
         for (const [key, value] of Object.entries(rate)) {
             if (key === "model") continue;
-            merged[key] = value;
-        }
-    }
-
-    // Hash always overrides
-    merged.hash = hash;
-
-    // Generate YAML
-    const lines = ["---"];
-    for (const [key, value] of Object.entries(merged)) {
-        if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-            // Nested object
-            lines.push(`${key}:`);
-            for (const [subKey, subValue] of Object.entries(value)) {
-                lines.push(`  ${subKey}: ${subValue}`);
+            if (value === null || value === undefined) continue;
+            if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+                // Nested object - skip if all values are null
+                const nonNullValues = Object.values(value).filter((v) => v !== null);
+                if (nonNullValues.length === 0) continue;
+                lines.push(`${key}:`);
+                for (const [subKey, subValue] of Object.entries(value)) {
+                    lines.push(`  ${subKey}: ${subValue}`);
+                }
+            } else {
+                lines.push(`${key}: ${value}`);
             }
-        } else if (Array.isArray(value)) {
-            lines.push(`${key}: ${yamlArr(value)}`);
-        } else {
-            lines.push(`${key}: ${yamlStr(value)}`);
+            addedKeys.add(key);
         }
     }
-    lines.push("---");
 
+    // 4. Existing fields (only those not already added)
+    if (existingHeader && typeof existingHeader === "object") {
+        for (const [key, value] of Object.entries(existingHeader)) {
+            if (addedKeys.has(key)) continue;
+            if (value === null || value === undefined) continue;
+            if (Array.isArray(value) && value.length === 0) continue;
+            if (typeof value === "string" && value === "") continue;
+            if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+                const nonNullValues = Object.values(value).filter((v) => v !== null);
+                if (nonNullValues.length === 0) continue;
+                lines.push(`${key}:`);
+                for (const [subKey, subValue] of Object.entries(value)) {
+                    lines.push(`  ${subKey}: ${subValue}`);
+                }
+            } else {
+                lines.push(Array.isArray(value) ? `${key}: ${yamlArr(value)}` : `${key}: ${yamlStr(value)}`);
+            }
+        }
+    }
+
+    lines.push("---");
     return lines.join("\n");
 }
 
