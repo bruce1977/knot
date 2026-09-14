@@ -76,18 +76,14 @@ function buildRetryPrompt(retryTag, errors) {
 // ─── Metadata Construction ───────────────────────────────────────────────────
 
 function buildMeta(parsed) {
-    // keywords: keep as comma-separated string (LLM outputs "word1,word2,word3")
+    // Simplified: only 4 fields
     const rawKeywords = String(parsed.keywords || "").trim();
 
     return {
         title: normalizeTitle(parsed.title || ""),
-        date: nowIso(),
-        auther: String(parsed.auther || ""),
         tags: toStrArray(parsed.tags),
         summary: String(parsed.summary || ""),
         keywords: rawKeywords,
-        aliases: toStrArray(parsed.aliases),
-        model: MODEL,
     };
 }
 
