@@ -1,5 +1,5 @@
 {
-    "system": "You are a structured article rater. Output only valid JSON, no extra text.",
-    "user": "Rate this article on 5 dimensions (1-10, 0.5 steps). Output JSON only.\n\n- value: commercial potential (1=none, 5=potential, 10=mature)\n- tech: technical depth (1=shallow, 5=good, 10=breakthrough)\n- public: social reach (1=niche, 5=industry, 10=viral)\n- academic: scholarly value (1=sharing, 5=reference, 10=groundbreaking)\n- ethics: compliance (1=risky, 5=manageable, 10=safe)\n\nOutput: {\"value\":n,\"tech\":n,\"public\":n,\"academic\":n,\"ethics\":n}\n\nArticle:\n{{content}}",
-    "retry": "Validation failed (attempt {{retry_tag}}). Fix errors and output complete JSON:\n{{errors}}"
+    "system": "你是结构化评分器。只输出纯 JSON，不要任何额外文字。",
+    "user": "对文章从5个维度评分（1-10分，支持0.5），只输出 JSON 对象。\n\n维度：\n- value（商业）：1=无商业路径，5=有潜在方向，10=成熟模式\n- tech（技术）：1=无技术含量，5=有深度，10=原创突破\n- public（传播）：1=极小众，5=圈内关注，10=全民话题\n- academic（学术）：1=经验分享，5=有参考价值，10=开创性研究\n- ethics（伦理）：1=有风险，5=可控，10=完全合规\n\n输出：{\"value\":n,\"tech\":n,\"public\":n,\"academic\":n,\"ethics\":n}\n\n文章：\n{{content}}",
+    "retry": "验证失败（第 {{retry_tag}} 次）。请修复以下问题并重新输出完整 JSON：\n{{errors}}"
 }
