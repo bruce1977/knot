@@ -143,17 +143,33 @@ function toNum(value) {
 
 // Minimal schema validator.
 // Format:
-//   "string"            - required string (minLength 1)
-//   ["string", min]     - string with minLength
-//   ["number", min, max] - number with range
-//   ["array", min, max]  - array with item count range
-//   { "key": ... }       - nested object (all keys required)
+//   "string"                 - required string (minLength 1)
+//   ["optional", "string"]   - optional string
+//   ["string", min]          - required string with minLength
+//   ["optional", "string", min] - optional string with minLength
+//   ["number", min, max]     - required number with range
+//   ["optional", "number", min, max] - optional number with range
+//   ["array", min, max]      - required array with item count range
+//   ["optional", "array", min, max] - optional array with item count range
+//   { "key": ... }           - nested object (all keys required)
+//   { "key?": ... }          - nested object with optional key
 function validateSchema(data, schema) {
     const errors = [];
 
     function validate(obj, schemaNode, currentPath) {
+        const isOptional = Array.isArray(schemaNode) && schemaNode[0] === "optional";
+        const actual = isOptional ? schemaNode.slice(1) : schemaNode;
+
+        // Check if value exists
+        if (obj === undefined || obj === null) {
+            if (!isOptional) {
+                errors.push(`${currentPath}: required property is missing`);
+            }
+            return;
+        }
+
         // String shorthand: "string" or ["string", minLength]
-        if (schemaNode === "string") {
+        if (actual === "string") {
             if (typeof obj !== "string") {
                 errors.push(`${currentPath}: expected string, got ${typeof obj}`);
             } else if (obj.length === 0) {
@@ -161,57 +177,65 @@ function validateSchema(data, schema) {
             }
             return;
         }
-        if (Array.isArray(schemaNode) && schemaNode[0] === "string") {
+        if (Array.isArray(actual) && actual[0] === "string") {
             if (typeof obj !== "string") {
                 errors.push(`${currentPath}: expected string, got ${typeof obj}`);
-            } else if (schemaNode[1] !== undefined && obj.length < schemaNode[1]) {
-                errors.push(`${currentPath}: string length ${obj.length} < ${schemaNode[1]}`);
+            } else if (actual[1] !== undefined && obj.length < actual[1]) {
+                errors.push(`${currentPath}: string length ${obj.length} < ${actual[1]}`);
             }
             return;
         }
 
         // Number shorthand: ["number", min, max]
-        if (Array.isArray(schemaNode) && schemaNode[0] === "number") {
+        if (Array.isArray(actual) && actual[0] === "number") {
             if (typeof obj !== "number") {
                 errors.push(`${currentPath}: expected number, got ${typeof obj}`);
             } else {
-                if (schemaNode[1] !== undefined && obj < schemaNode[1]) {
-                    errors.push(`${currentPath}: value ${obj} < ${schemaNode[1]}`);
+                if (actual[1] !== undefined && obj < actual[1]) {
+                    errors.push(`${currentPath}: value ${obj} < ${actual[1]}`);
                 }
-                if (schemaNode[2] !== undefined && obj > schemaNode[2]) {
-                    errors.push(`${currentPath}: value ${obj} > ${schemaNode[2]}`);
+                if (actual[2] !== undefined && obj > actual[2]) {
+                    errors.push(`${currentPath}: value ${obj} > ${actual[2]}`);
                 }
             }
             return;
         }
 
         // Array shorthand: ["array", minItems, maxItems]
-        if (Array.isArray(schemaNode) && schemaNode[0] === "array") {
+        if (Array.isArray(actual) && actual[0] === "array") {
             if (!Array.isArray(obj)) {
                 errors.push(`${currentPath}: expected array, got ${typeof obj}`);
             } else {
-                if (schemaNode[1] !== undefined && obj.length < schemaNode[1]) {
-                    errors.push(`${currentPath}: array length ${obj.length} < ${schemaNode[1]}`);
+                if (actual[1] !== undefined && obj.length < actual[1]) {
+                    errors.push(`${currentPath}: array length ${obj.length} < ${actual[1]}`);
                 }
-                if (schemaNode[2] !== undefined && obj.length > schemaNode[2]) {
-                    errors.push(`${currentPath}: array length ${obj.length} > ${schemaNode[2]}`);
+                if (actual[2] !== undefined && obj.length > actual[2]) {
+                    errors.push(`${currentPath}: array length ${obj.length} > ${actual[2]}`);
                 }
             }
             return;
         }
 
         // Object: nested schema
-        if (typeof schemaNode === "object" && schemaNode !== null && !Array.isArray(schemaNode)) {
+        if (typeof actual === "object" && actual !== null && !Array.isArray(actual)) {
             if (typeof obj !== "object" || obj === null || Array.isArray(obj)) {
                 errors.push(`${currentPath}: expected object, got ${typeof obj}`);
                 return;
             }
-            // All keys in schema are required
-            for (const [key, subSchema] of Object.entries(schemaNode)) {
-                if (obj[key] === undefined || obj[key] === null) {
-                    errors.push(`${currentPath}.${key}: required property is missing`);
+            for (const [key, subSchema] of Object.entries(actual)) {
+                const keyOptional = key.endsWith("?");
+                const actualKey = keyOptional ? key.slice(0, -1) : key;
+                if (keyOptional) {
+                    // Optional field: skip if not present
+                    if (obj[actualKey] !== undefined && obj[actualKey] !== null) {
+                        validate(obj[actualKey], subSchema, `${currentPath}.${actualKey}`);
+                    }
                 } else {
-                    validate(obj[key], subSchema, `${currentPath}.${key}`);
+                    if (obj[actualKey] === undefined || obj[actualKey] === null) {
+                        errors.push(`${currentPath}.${actualKey}: required property is missing`);
+                    } else {
+                        validate(obj[actualKey], subSchema, `${currentPath}.${actualKey}`);
+                    }
                 }
             }
         }
