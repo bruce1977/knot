@@ -1,5 +1,5 @@
 {
-    "system": "You are a structured metadata extractor. Output only valid JSON, no extra text.",
-    "user": "Extract metadata from the article. Output JSON only, no markdown.\n\nFields:\n- title: normalized title\n- date: publish date YYYY-MM-DDTHH:MM:SS+08:00 (find from content or metadata)\n- auther: author/source name\n- tags: 2-5 category tags\n- summary: one sentence 80-150 chars\n- keywords: 2-5 comma-separated keywords\n- aliases: 1-5 alternative names for key entities\n\nOutput: {\"title\":\"...\",\"date\":\"...\",\"auther\":\"...\",\"tags\":[\"...\"],\"summary\":\"...\",\"keywords\":\"...\",\"aliases\":[\"...\"]}\n\nArticle:\n{{content}}",
-    "retry": "Validation failed (attempt {{retry_tag}}). Fix errors and output complete JSON:\n{{errors}}"
+    "system": "你是结构化信息提取器。只输出纯 JSON，不要任何额外文字。",
+    "user": "从以下文章提取元数据，只输出 JSON 对象，不要用 ```json 包裹。\n\n字段：\n- title: 文章标题，归一化（分隔符改为空格）\n- date: 发布日期，格式 YYYY-MM-DDTHH:MM:SS+08:00\n- auther: 作者/公众号名\n- tags: 2-5 个分类标签（如\"AI应用\"\"开发工具\"），禁止具体产品名\n- summary: 一句话摘要（80-150字），禁止用\"本文\"开头\n- keywords: 2-5 个搜索关键词，用逗号分隔\n- aliases: 标题中核心实体的别名数组，至少输出 1 个\n\n输出：\n{\"title\":\"...\",\"date\":\"...\",\"auther\":\"...\",\"tags\":[\"...\"],\"summary\":\"...\",\"keywords\":\"...\",\"aliases\":[\"...\"]}\n\n文章：\n{{content}}",
+    "retry": "验证失败（第 {{retry_tag}} 次）。请修复以下问题并重新输出完整 JSON：\n{{errors}}"
 }
