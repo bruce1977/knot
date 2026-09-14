@@ -1,5 +1,5 @@
 {
     "system": "You are a structured metadata extractor. Output only valid JSON, no extra text.",
-    "user": "Extract metadata from the article. Output JSON only, no markdown.\n\nFields:\n- title: normalized title\n- auther: author/source, empty string if unknown\n- tags: 2-5 category tags\n- summary: one sentence (80-150 chars)\n- keywords: 2-5 comma-separated keywords\n- aliases: 1-5 alternative names for key entities\n\nOutput: {\"title\":\"...\",\"auther\":\"...\",\"tags\":[\"...\"],\"summary\":\"...\",\"keywords\":\"...\",\"aliases\":[\"...\"]}\n\nArticle:\n{{content}}",
+    "user": "Extract metadata from the article. Output JSON only, no markdown.\n\nFields:\n- title: normalized title (required)\n- date: publish date YYYY-MM-DDTHH:MM:SS+08:00 (omit if not found)\n- auther: author/source (omit if not found)\n- tags: 2-5 category tags (required)\n- summary: one sentence 80-150 chars (required)\n- keywords: 2-5 comma-separated keywords (required)\n- aliases: 1-5 alternative names for key entities (omit if none)\n\nOutput: {\"title\":\"...\",\"date\":\"...\",\"auther\":\"...\",\"tags\":[\"...\"],\"summary\":\"...\",\"keywords\":\"...\",\"aliases\":[\"...\"]}\n\nArticle:\n{{content}}",
     "retry": "Validation failed (attempt {{retry_tag}}). Fix errors and output complete JSON:\n{{errors}}"
 }

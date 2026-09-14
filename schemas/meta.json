@@ -1,6 +1,6 @@
 {
     "title": ["string", 1],
-    "date?": "string",
+    "date": "string",
     "auther": "string",
     "tags": ["array", 2, 5],
     "summary": ["string", 20],
