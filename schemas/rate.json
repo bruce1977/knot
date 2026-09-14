@@ -1,10 +1,7 @@
 {
-    "ratings": {
-        "value": ["number", 1, 10],
-        "tech": ["number", 1, 10],
-        "public": ["number", 1, 10],
-        "academic": ["number", 1, 10],
-        "ethics": ["number", 1, 10]
-    },
-    "score": ["number", 1, 10]
+    "value": ["number", 1, 10],
+    "tech": ["number", 1, 10],
+    "public": ["number", 1, 10],
+    "academic": ["number", 1, 10],
+    "ethics": ["number", 1, 10]
 }

@@ -91,7 +91,8 @@ function buildRate(parsed) {
         ? Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10
         : null;
 
-    return { ratings, score };
+    // Return flat structure with computed score
+    return { ...ratings, score };
 }
 
 // ─── LLM Extraction with Retry ──────────────────────────────────────────────
