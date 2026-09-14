@@ -94,7 +94,7 @@ function buildRate(parsed) {
         ? Math.round((numericValues.reduce((a, b) => a + b, 0) / numericValues.length) * 10) / 10
         : null;
 
-    return { ratings, score, model: MODEL };
+    return { ratings, score };
 }
 
 // ─── LLM Extraction with Retry ──────────────────────────────────────────────

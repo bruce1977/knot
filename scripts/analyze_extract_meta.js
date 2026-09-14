@@ -77,12 +77,12 @@ function buildRetryPrompt(retryTag, errors) {
 
 function buildMeta(parsed) {
     // Dynamic: pass through all fields from LLM output
-    // Schema validation will ensure required fields are present
     const result = {};
     for (const [key, value] of Object.entries(parsed)) {
-        if (key === "model") continue; // skip model field
         result[key] = value;
     }
+    // Add model field
+    result.model = MODEL;
     return result;
 }
 
