@@ -1,5 +1,7 @@
 # ─── Dependencies ─────────────────────────────────────────────────────────────
 node_modules/
+# Lock file is a local install artifact, not tracked
+package-lock.json
 
 # ─── Environment Variables ────────────────────────────────────────────────────
 .env
@@ -41,3 +43,4 @@ tmp/
 # weknora/
 # archive/
 # .config/
+package-lock.json
