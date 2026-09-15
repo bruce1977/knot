@@ -1,7 +1,15 @@
 {
   "name": "knowledge-pipeline",
   "version": "1.0.0",
-  "keywords": ["knowledge", "pipeline", "weknora", "metadata", "analysis", "sync", "archive"],
+  "keywords": [
+    "knowledge",
+    "pipeline",
+    "weknora",
+    "metadata",
+    "analysis",
+    "sync",
+    "archive"
+  ],
   "description": "Knowledge base pipeline skill: init, analyze (metadata extraction + rating), sync to WeKnora, archive old files",
   "main": "scripts/analyze_start.js",
   "scripts": {
@@ -23,5 +31,8 @@
     "scripts/",
     "SKILL.md",
     "README.md"
-  ]
+  ],
+  "dependencies": {
+    "js-yaml": "^5.4.2"
+  }
 }

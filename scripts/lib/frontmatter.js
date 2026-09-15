@@ -1,4 +1,5 @@
 const fs = require("fs");
+const yaml = require("js-yaml");
 
 // ─── String Helpers ──────────────────────────────────────────────────────────
 
@@ -11,150 +12,93 @@ function sanitizeTitle(title) {
         .slice(0, 80) || "untitled";
 }
 
-// Format a value as a YAML string.
-function yamlStr(value) {
-    if (value == null) return '""';
-    return JSON.stringify(String(value));
+// ─── YAML Frontmatter Splitting / Parsing ────────────────────────────────────
+
+// Frontmatter block: the opening --- must be the first line and the closing ---
+// must sit on a line of its own. Content may use LF or CRLF.
+const FRONTMATTER_RE = /^---[ \t]*\r?\n([\s\S]*?)\r?\n?---[ \t]*(?:\r?\n|$)/;
+
+// Match a document's frontmatter block, or null when it has none.
+function matchFrontmatter(content) {
+    return typeof content === "string" ? content.match(FRONTMATTER_RE) : null;
 }
 
-// Format an array as a YAML array.
-function yamlArr(arr) {
-    if (!Array.isArray(arr)) arr = [];
-    return "[" + arr.map((item) => JSON.stringify(String(item))).join(", ") + "]";
+// Load YAML text into an object, tolerating malformed input.
+function loadYamlObject(raw) {
+    try {
+        const loaded = yaml.load(raw);
+        return (loaded && typeof loaded === "object") ? loaded : {};
+    } catch {
+        // Malformed YAML is treated as empty rather than fatal: a broken header
+        // should degrade to "no metadata", never abort a whole batch.
+        return {};
+    }
 }
 
-// ─── YAML Parsing ────────────────────────────────────────────────────────────
+// Split a document into its frontmatter fields and remaining body.
+// An absent or unparsable header degrades to an empty field set.
+function splitFrontmatter(content) {
+    const match = matchFrontmatter(content);
+    if (!match) return { fields: {}, body: typeof content === "string" ? content : "" };
+    return { fields: loadYamlObject(match[1]), body: content.slice(match[0].length) };
+}
 
-// Parse simple YAML frontmatter into an object.
-// Supports: string, number, boolean, array, nested objects.
+// Parse only the frontmatter fields. Returns null when there is no block at all.
 function parseFrontmatter(content) {
-    const match = content.match(/^---\n([\s\S]*?)\n---/);
+    const match = matchFrontmatter(content);
     if (!match) return null;
-
-    const lines = match[1].split("\n");
-    const result = {};
-    let currentKey = null;
-    let currentIndent = 0;
-    let nestedObj = null;
-
-    for (const line of lines) {
-        const indentMatch = line.match(/^(\s*)/);
-        const indent = indentMatch ? indentMatch[1].length : 0;
-
-        // Handle nested objects
-        if (currentKey && indent > currentIndent && nestedObj) {
-            const kvMatch = line.match(/^\s+(\w+):\s*(.*)$/);
-            if (kvMatch) {
-                nestedObj[kvMatch[1]] = parseYamlValue(kvMatch[2]);
-                continue;
-            }
-        }
-
-        // Reset nested object if we're back to top level
-        if (nestedObj && indent <= currentIndent) {
-            result[currentKey] = nestedObj;
-            nestedObj = null;
-        }
-
-        const kvMatch = line.match(/^(\w+):\s*(.*)$/);
-        if (kvMatch) {
-            const key = kvMatch[1];
-            const value = kvMatch[2];
-
-            // Check if this starts a nested object (value is empty)
-            if (value === "" || value === "|") {
-                currentKey = key;
-                currentIndent = indent;
-                nestedObj = {};
-            } else {
-                result[key] = parseYamlValue(value);
-                currentKey = null;
-                nestedObj = null;
-            }
-        }
-    }
-
-    // Don't forget the last nested object
-    if (nestedObj && currentKey) {
-        result[currentKey] = nestedObj;
-    }
-
-    return result;
+    return loadYamlObject(match[1]);
 }
 
-// Parse a YAML value string into appropriate JS type.
-function parseYamlValue(value) {
-    const trimmed = value.trim();
-
-    // Array
-    if (trimmed.startsWith("[")) {
-        try {
-            return JSON.parse(trimmed);
-        } catch {
-            return trimmed;
-        }
-    }
-
-    // Number
-    if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
-        return Number(trimmed);
-    }
-
-    // Boolean
-    if (trimmed === "true") return true;
-    if (trimmed === "false") return false;
-
-    // Null
-    if (trimmed === "null" || trimmed === "~") return null;
-
-    // String (remove quotes)
-    if ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-        (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
-        return trimmed.slice(1, -1);
-    }
-
-    return trimmed;
+// Strip the frontmatter block and return the body with leading blank lines removed.
+function stripFrontmatter(content) {
+    if (typeof content !== "string") return "";
+    const match = matchFrontmatter(content);
+    const body = match ? content.slice(match[0].length) : content;
+    return body.replace(/^[\r\n]+/, "");
 }
 
 // ─── YAML Frontmatter Generation ─────────────────────────────────────────────
 
-// Write a single key-value pair to YAML lines.
-// Handles nested objects and arrays.
-function writeYamlEntry(key, value, lines, indent = 0) {
-    if (value === null || value === undefined) return;
-    if (Array.isArray(value) && value.length === 0) return;
-    if (typeof value === "string" && value === "") return;
-
-    const prefix = "  ".repeat(indent);
-
-    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-        // Nested object
-        const entries = Object.entries(value).filter(([, v]) => v !== null && v !== undefined);
-        if (entries.length === 0) return;
-        lines.push(`${prefix}${key}:`);
-        for (const [subKey, subValue] of entries) {
-            writeYamlEntry(subKey, subValue, lines, indent + 1);
-        }
-    } else if (Array.isArray(value)) {
-        lines.push(`${prefix}${key}: ${yamlArr(value)}`);
-    } else {
-        lines.push(`${prefix}${key}: ${yamlStr(value)}`);
+// Normalize a value for dumping: drop anything carrying no information and
+// stringify the rest, so every emitted scalar keeps being read back as a string.
+// Returns undefined for values that should be omitted entirely.
+function toYamlSafe(value) {
+    if (value === null || value === undefined) return undefined;
+    if (Array.isArray(value)) {
+        if (value.length === 0) return undefined;
+        return value.map(item => item === null || item === undefined ? "" : String(item));
     }
+    if (typeof value === "object") {
+        const nested = {};
+        for (const [key, nestedValue] of Object.entries(value)) {
+            const converted = toYamlSafe(nestedValue);
+            if (converted === undefined) continue;
+            nested[key] = converted;
+        }
+        return Object.keys(nested).length > 0 ? nested : undefined;
+    }
+    if (typeof value === "string" && value === "") return undefined;
+    return String(value);
 }
+
+// Render options kept deliberately stable for downstream readers: top-level keys
+// stay block-style, arrays and nested maps stay inline, nothing wraps.
+const DUMP_OPTIONS = {
+    flowLevel: 1,
+    forceQuotes: true,
+    lineWidth: -1,
+    noRefs: true,
+    sortKeys: false,
+};
 
 // Generate YAML frontmatter header from merged extraction results.
 // @param {Object} results - Merged results from all plugins
 // @returns {string} YAML frontmatter string (with --- delimiters)
 function generateYamlHeader(results) {
-    const lines = ["---"];
-
-    // Write all fields from merged results
-    for (const [key, value] of Object.entries(results)) {
-        writeYamlEntry(key, value, lines);
-    }
-
-    lines.push("---");
-    return lines.join("\n");
+    const payload = toYamlSafe(results);
+    if (!payload || Object.keys(payload).length === 0) return "---\n---";
+    return `---\n${yaml.dump(payload, DUMP_OPTIONS).trimEnd()}\n---`;
 }
 
 // ─── File Utilities ──────────────────────────────────────────────────────────
@@ -170,4 +114,11 @@ function loadJSON(filePath) {
 
 // ─── Exports ─────────────────────────────────────────────────────────────────
 
-module.exports = { generateYamlHeader, sanitizeTitle, loadJSON, parseFrontmatter, writeYamlEntry };
+module.exports = {
+    generateYamlHeader,
+    sanitizeTitle,
+    loadJSON,
+    splitFrontmatter,
+    stripFrontmatter,
+    parseFrontmatter,
+};

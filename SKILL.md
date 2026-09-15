@@ -308,7 +308,13 @@ node scripts/kb-weknora.js <profile>
 | `concurrency` | ❌ | 并发路数（默认 1，串行处理） |
 | `normal_submit_interval_ms` | ❌ | 普通库每篇上传后的等待间隔（默认 30000，供 WeKnora 生成摘要） |
 | `wiki_submit_interval_ms` | ❌ | wiki 库每篇上传后的等待间隔（默认 600000） |
+| `submit_interval_ms` | ❌ | 等待间隔回退值 |
+| `batch_size` | ❌ | 本次最多处理篇数（0 = 全部） |
+| `dedup_enabled` | ❌ | 是否启用 title + hash 去重 |
 | `custom_metas` | ✅ | 上传到 WeKnora custom_metadata 的字段映射 |
+| `max_consecutive_failures` | ❌ | 连续失败多少篇后中止流程（默认 3） |
+| `abort_grace_ms` | ❌ | 中止后在途请求的宽限期，超时强杀进程（默认 30000） |
+| `rollback_on_publish_failure` | ❌ | 发布失败是否回滚删除草稿（默认 true） |
 
 > 为兼容旧配置，未配置 `normal_submit_interval_ms` / `wiki_submit_interval_ms` 时，两者均回退到 `submit_interval_ms`（若也未配则 100ms）。脚本**不再 PUT `description`**，摘要完全由 WeKnora 生成。
 
@@ -316,35 +322,41 @@ node scripts/kb-weknora.js <profile>
 
 每篇文章（按 `concurrency` 并发，默认 1 即串行）：
 1. 读文件、解析 frontmatter，按 `score` 选择目标库（`wiki_kb_id` 已配且 `score ≥ score_threshold` → wiki，否则普通库）
-2. 直接上传到目标库：POST `/knowledge-bases/{target}/knowledge/manual`（标题 `title`，不含 hash）
-3. 轮询解析完成（`parse_status = completed`）
-4. PUT `/knowledge/{id}`：仅写入 `custom_metadata`（含 `hash`），**不传 description**
-5. 分配 tags（失败则抛出，本地文件不移动，下次运行会重跑）
-6. 移动本地文件到 `weknora/`
-7. 等待 `normal_submit_interval_ms` 或 `wiki_submit_interval_ms`（按目标库类型），确保 WeKnora 有足够时间生成摘要
+2. 去重检查（可选）+ 分配 tags
+3. **建草稿**：`POST /knowledge-bases/{target}/knowledge/manual`，`status=draft`，同时提交 `tag_ids`
+4. **写元数据**：`PUT /knowledge/{id}` 只写 `custom_metadata`（含 `hash`），写完回读校验
+5. **发布**：`PUT /knowledge/manual/{id}`，`status=publish` —— 到这一步才开始解析流水线
+6. 三步全部成功后才移动本地文件到 `weknora/`，否则留在源目录等下次重试
+7. 等待 `normal_submit_interval_ms` / `wiki_submit_interval_ms`，供 WeKnora 生成摘要
+
+> 关键点：WeKnora 的创建接口（`ManualKnowledgePayload`）**结构上没有 `custom_metadata` 字段**，且 `publish` 入库会立即启动「按快照整行回写」的解析流水线，把随后 PUT 的 metas 冲掉。所以改为先建草稿——草稿不进流水线，写入零竞态、`summary_status` 为空不触发摘要重算（无额外 LLM 开销）；发布时 metas 已在库里，第一次摘要就带上了它们。tags 存在 `knowledge_tags` 关联表，发布接口与流水线都不写该表，因此不受影响。
 
 ### 流程图
 
 ```mermaid
 graph TD
     S[源文件 位于 marked 目录的 md 文件, frontmatter 含 hash] --> A[按评分 score 选择目标库]
-    A --> U[上传到目标库并等待解析]
-    U --> P[更新元数据, 仅写 custom_metadata 含 hash, 不写摘要]
-    P --> T[分配标签 tags, 失败则不移动本地文件]
-    T --> F[移动本地文件到 weknora 目录]
-    F --> W[等待提交间隔, 普通库 30s 或 wiki 库 600s]
+    A --> T[去重检查与分配标签 tags]
+    T --> D[建草稿 status=draft, 同请求提交 tag_ids]
+    D --> M[写 custom_metadata, PUT 后回读校验]
+    M --> P[发布 status=publish, 启动解析流水线]
+    P --> F[移动本地文件到 weknora 目录]
+    F --> W[等待提交间隔, 供生成摘要]
     W --> S
+    P -.-> E[任一步失败: 回滚草稿, 文件不移动, 留给下次重试]
 ```
 
-> 同步侧**不再做 hash 去重**：重复检测留待后续通过 SQL 检索 WeKnora 知识库。
+> 连续失败达到 `max_consecutive_failures` 时中止整个流程，剩余文章留在源目录待人工处理。
 
 ### 错误处理
 
 | 场景 | 处理 |
 |------|------|
-| 单篇上传/解析失败 | 记录 FAIL，继续处理其他篇 |
-| PUT 失败 | 记录 META，文章仍导入成功 |
-| 分配 tags 失败 | 抛出，该篇本地文件**不移动**，下次运行重新处理（可能在 WeKnora 产生重复） |
+| 发布失败 | 默认**回滚删除草稿**（否则残留草稿会被去重当成「已处理过」而永久跳过），本地文件不移动 |
+| 发现重复但无 custom_metadata | 判定为上次处理中途夭折的残废条目，**直接删除**后按无冲突继续上传 |
+| 单篇其他环节失败 | 记录 FAIL，本地文件**不移动**，下次运行重新处理 |
+| 连续失败 | 连续 `max_consecutive_failures`（默认 3）篇失败即判定后端异常，**停止领新文章并退出进程**，剩余文章留待人工处理 |
+| 分配 tags 失败 | 抛出，本地文件**不移动**，下次运行重新处理 |
 | 摘要生成较慢 | 通过等待间隔缓解，间隔按实际硬件在 config 中调优 |
 
 ---

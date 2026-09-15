@@ -1,4 +1,5 @@
 const fs = require("fs");
+const { stripFrontmatter } = require("./frontmatter");
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -318,13 +319,8 @@ function nowIso() {
 
 // ─── Content Processing ──────────────────────────────────────────────────────
 
-// Strip YAML frontmatter from markdown content.
-function stripFrontmatter(content) {
-    if (!content.startsWith("---")) return content.replace(/^\n+/, "");
-    const end = content.indexOf("---", 3);
-    if (end === -1) return content.replace(/^\n+/, "");
-    return content.slice(end + 3).replace(/^\n+/, "");
-}
+// stripFrontmatter now comes from lib/frontmatter, so every stage splits headers
+// with the same YAML-aware logic.
 
 // Remove WeChat article scraping residue: injected CSS, reader buttons, and
 // javascript:void(0) links. When a cover_image marker exists, drop everything

@@ -68,12 +68,39 @@ node scripts/kb-archive.js <profile> [days]
 ### 每篇文章流程
 
 1. 读文件、解析 frontmatter，按 `score` 选择目标库（`wiki_kb_id` 已配且 `score ≥ score_threshold` → wiki，否则普通库）
-2. 直接上传到目标库：`POST /knowledge-bases/{target}/knowledge/manual`（标题 `title`，不含 hash）
-3. 轮询解析完成
-4. `PUT /knowledge/{id}`：仅写入 `custom_metadata`（含 `hash`），**不传 description**（摘要完全由 WeKnora 生成，避免覆盖）
-5. 分配 tags
-6. 移动本地文件到 `weknora/`
-7. 按目标库类型等待 `normal_submit_interval_ms` / `wiki_submit_interval_ms`，确保 WeKnora 有足够时间生成摘要，再处理下一篇
+2. 去重检查（可选）+ 分配 tags
+3. **建草稿**：`POST /knowledge-bases/{target}/knowledge/manual`，`status=draft`，同一次请求带上 `tag_ids`
+4. **写元数据**：`PUT /knowledge/{id}`，仅写 `custom_metadata`（含 `hash`），写完回读校验
+5. **发布**：`PUT /knowledge/manual/{id}`，`status=publish` —— 此时才开始解析流水线
+6. 移动本地文件到 `weknora/`（三步全部成功后才移动，失败则留在原处等下次重试）
+7. 按目标库类型等待 `normal_submit_interval_ms` / `wiki_submit_interval_ms`，确保 WeKnora 有足够时间生成摘要
+
+### 为什么是「草稿 → 元数据 → 发布」
+
+WeKnora 的创建接口（`ManualKnowledgePayload`）**结构上就没有 `custom_metadata` 字段**，所以 metas 只能在创建之后写。而一旦以 `publish` 直接入库，解析流水线会立刻启动，并**按内存快照整行回写**记录——此时再 PUT 的 `custom_metadata` 会被下一次回写冲掉，这就是「PUT 返回成功但数据没了」的原因。
+
+草稿模式下这个竞态天然不存在：
+
+| 阶段 | 流水线状态 | metas 写入 |
+|------|-----------|-----------|
+| `status=draft` | 完全不入流水线，`parse_status=draft`、`enable_status=disabled` | 没有任何异步写在竞争，写入必然留存 |
+| `PUT /knowledge/{id}` | 同上 | 此时 `summary_status` 为空，**不会触发摘要重算**（也就没有额外 LLM 开销） |
+| `status=publish` | 开始解析 + 生成摘要 | metas 已经在库里，第一次摘要就带上了它们 |
+
+tags 不受影响：`POST .../manual` 在建草稿时就把 `tag_ids` 写进 `knowledge_tags` 关联表；而发布接口只读取 title / content / status / process_config，**不读也不改 tags**，流水线全程没有任何一处写那张关联表。
+
+代价只是每篇多两次 HTTP 请求，换零竞态、零额外 LLM 调用。
+
+### 失败处理
+
+| 场景 | 处理 |
+|------|------|
+| 发布失败 | 默认**删除残留草稿**（`rollback_on_publish_failure`），否则下次去重会把它当成「已处理过」而永久跳过；本地文件不移动 |
+| 发现重复但无 custom_metadata | 判定为上次处理中途夭折的残废条目，**直接删除**后按无冲突继续上传（自定义元数据是在发布前写入的，拿不到 hash 说明那次没跑完） |
+| 单篇其他环节失败 | 记录 FAIL，本地文件**不移动**，下次运行重新处理 |
+| 连续失败 | 连续 `max_consecutive_failures`（默认 3）篇失败 → 判定后端异常，**停止领新文章并以非 0 退出码终止进程**，剩余文章留在源目录待人工处理 |
+| 分配 tags 失败 | 抛出，本地文件不移动 |
+| 摘要生成较慢 | 通过等待间隔缓解，间隔可在 config 中调优 |
 
 ### weknora 配置字段
 
@@ -87,18 +114,15 @@ node scripts/kb-archive.js <profile> [days]
 | `concurrency` | ❌ | 并发路数（默认 1，串行） |
 | `normal_submit_interval_ms` | ❌ | 普通库每篇上传后等待间隔（默认 30000） |
 | `wiki_submit_interval_ms` | ❌ | wiki 库每篇上传后等待间隔（默认 600000） |
+| `submit_interval_ms` | ❌ | 每篇发布后的等待间隔回退值 |
+| `batch_size` | ❌ | 本次最多处理多少篇（0 = 全部） |
+| `dedup_enabled` | ❌ | 是否启用 title + hash 去重 |
 | `custom_metas` | ✅ | 写入 WeKnora custom_metadata 的字段映射 |
+| `max_consecutive_failures` | ❌ | 连续失败多少篇后中止流程（默认 3） |
+| `abort_grace_ms` | ❌ | 中止后在途请求的宽限期，超时强杀进程（默认 30000） |
+| `rollback_on_publish_failure` | ❌ | 发布失败是否回滚删除草稿（默认 true） |
 
 > 兼容性：未配置 `normal_submit_interval_ms` / `wiki_submit_interval_ms` 时，两者均回退到旧字段 `submit_interval_ms`（若也未配则 100ms）。两个间隔默认值（30s / 600s）是按摘要生成耗时估算的，可随硬件升级调整。
-
-### 错误处理
-
-| 场景 | 处理 |
-|------|------|
-| 单篇上传/解析失败 | 记录 FAIL，继续处理其他篇 |
-| PUT 失败 | 记录 META，文章仍导入成功 |
-| 分配 tags 失败 | 抛出，该篇本地文件**不移动**，下次运行重新处理（可能在 WeKnora 产生重复） |
-| 摘要生成较慢 | 通过等待间隔缓解，间隔可在 config 中调优 |
 
 ## 环境变量
 
