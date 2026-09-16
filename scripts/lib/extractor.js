@@ -28,6 +28,7 @@ class BaseExtractor {
         this.contentSlice = config.contentSlice || 8000;
         this.usesCache = config.usesCache !== undefined ? config.usesCache : true;
 
+        this.profileDir = null;
         this._configCache = null;
     }
 
@@ -42,9 +43,8 @@ class BaseExtractor {
     // Otherwise the built-in one shipped next to the plugin.
     getConfigPath() {
         const fileName = `${this.pluginName}_config.json`;
-        const profileDir = process.env.KB_PROFILE_DIR;
-        if (profileDir) {
-            const profilePath = path.join(profileDir, ".config", fileName);
+        if (this.profileDir) {
+            const profilePath = path.join(this.profileDir, ".config", fileName);
             if (fs.existsSync(profilePath)) return profilePath;
         }
         return path.join(PLUGIN_DIR, fileName);

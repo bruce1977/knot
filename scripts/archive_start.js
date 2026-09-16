@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const { moveFile, getProfileDir } = require("./lib/common");
+const { moveFile, resolveProfile } = require("./lib/common");
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -8,45 +8,19 @@ const MS_PER_DAY = 86400 * 1000;
 
 // ─── Argument Parsing ────────────────────────────────────────────────────────
 
-const [, , sourceDirArg, targetDirArg, daysStr] = process.argv;
-const profileDir = getProfileDir();
+const [, , profileArg] = process.argv;
+const { profileDir, sectionConfig } = resolveProfile(profileArg, "archive", {
+    source_folder: "weknora",
+    target_folder: "archived",
+    days: 90,
+});
 
-// Try to load config from profile if not provided
-let sourceDir = sourceDirArg;
-let targetDir = targetDirArg;
-let days = daysStr ? parseInt(daysStr, 10) : 90;
+const sourceDir = path.join(profileDir, sectionConfig.source_folder);
+const targetDir = path.join(profileDir, sectionConfig.target_folder);
+const DAYS = sectionConfig.days;
 
-if ((!sourceDir || !targetDir || !daysStr) && profileDir) {
-    const configPath = `${profileDir}/.config/config.json`;
-    if (fs.existsSync(configPath)) {
-        try {
-            const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-            const archiveConfig = config.archive || {};
-            if (!sourceDir) sourceDir = `${profileDir}/${archiveConfig.source_folder || "weknora"}`;
-            if (!targetDir) targetDir = `${profileDir}/${archiveConfig.target_folder || "archived"}`;
-            if (!daysStr && archiveConfig.days) days = archiveConfig.days;
-        } catch (e) {
-            // Ignore config loading errors
-        }
-    }
-}
-
-// Fallback to defaults
-if (!sourceDir) sourceDir = `${profileDir}/weknora`;
-if (!targetDir) targetDir = `${profileDir}/archived`;
-
-if (!sourceDir || !targetDir) {
-    console.error("Usage: node archive_start.js <source_folder> <target_folder> [days]");
-    console.error("  source_folder: directory of files to archive");
-    console.error("  target_folder: destination for archived files");
-    console.error("  days:          file age threshold in days (default 90), based on file mtime");
-    console.error("  Or set KB_DEFAULT_PROFILE environment variable to use default directories");
-    process.exit(1);
-}
-
-const DAYS = daysStr ? parseInt(daysStr, 10) : 90;
 if (isNaN(DAYS) || DAYS < 0) {
-    console.error(`Error: invalid days "${daysStr}"`);
+    console.error(`Error: invalid days "${DAYS}"`);
     process.exit(1);
 }
 

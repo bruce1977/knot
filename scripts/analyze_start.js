@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { generateYamlHeader, sanitizeTitle } = require("./lib/frontmatter");
 const { stripFrontmatter, cleanWechatContent, getLlmStats } = require("./lib/llm");
-const { contentHash, getProfileDir, validateMd, moveToError } = require("./lib/common");
+const { contentHash, resolveProfile, validateMd, moveToError } = require("./lib/common");
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -26,41 +26,19 @@ class KnowledgeAnalyzer {
     // ─── Initialization ─────────────────────────────────────────────────
 
     async init() {
-        const [, , sourceDirArg, targetDirArg, batchSizeArg] = process.argv;
-        const profileDir = getProfileDir();
+        const [, , profileArg] = process.argv;
+        const { profileDir, sectionConfig } = resolveProfile(profileArg, "analyze", {
+            source_folder: "inbox",
+            target_folder: "marked",
+            batch_size: 30,
+            "plug-ins": DEFAULT_EXTRACTOR_PLUGINS,
+        });
 
-        this.sourceDir = sourceDirArg;
-        this.targetDir = targetDirArg;
-        this.batchSize = batchSizeArg ? Number(batchSizeArg) : null;
-
-        // Load config from profile
-        if (profileDir) {
-            const configPath = path.join(profileDir, ".config", "config.json");
-            if (fs.existsSync(configPath)) {
-                try {
-                    const profileConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-                    this.analyzeConfig = profileConfig.analyze || {};
-                    if (!this.sourceDir) this.sourceDir = path.join(profileDir, this.analyzeConfig.source_folder || "inbox");
-                    if (!this.targetDir) this.targetDir = path.join(profileDir, this.analyzeConfig.target_folder || "marked");
-                    if (!this.batchSize && this.analyzeConfig.batch_size) this.batchSize = this.analyzeConfig.batch_size;
-                } catch (e) {
-                    // Ignore config loading errors
-                }
-            }
-            process.env.KB_PROFILE_DIR = profileDir;
-        }
-
-        // Apply defaults
-        if (!this.sourceDir) this.sourceDir = profileDir ? path.join(profileDir, "inbox") : null;
-        if (!this.targetDir) this.targetDir = profileDir ? path.join(profileDir, "marked") : null;
-        if (!this.batchSize) this.batchSize = 30;
-
-        // Validate
-        if (!this.sourceDir || !this.targetDir) {
-            console.error("Usage: node analyze_start.js <source_dir> <target_dir> [batch_size]");
-            console.error("  Or set KB_DEFAULT_PROFILE environment variable to use default directories");
-            process.exit(1);
-        }
+        this.profileDir = profileDir;
+        this.analyzeConfig = sectionConfig;
+        this.sourceDir = path.join(profileDir, sectionConfig.source_folder);
+        this.targetDir = path.join(profileDir, sectionConfig.target_folder);
+        this.batchSize = sectionConfig.batch_size;
 
         // Load extractor plugins
         this.loadExtractorPlugins();
@@ -76,6 +54,7 @@ class KnowledgeAnalyzer {
                 // Plugin name drives config lookup: .config/<name>_config.json wins
                 // over the built-in plugins/<name>_config.json.
                 plugin.pluginName = name;
+                plugin.profileDir = this.profileDir;
                 return plugin;
             } catch (e) {
                 console.error(`Failed to load plugin: ${name}`, e.message);

@@ -1,6 +1,6 @@
 ﻿const fs = require("fs");
 const path = require("path");
-const { getProfileDir } = require("./lib/common");
+const { resolveProfile } = require("./lib/common");
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -41,15 +41,8 @@ const DEFAULT_CONFIG = {
 
 // ─── Argument Parsing ────────────────────────────────────────────────────────
 
-const [, , baseDirArg] = process.argv;
-const baseDir = baseDirArg || getProfileDir();
-
-if (!baseDir) {
-    console.error("Usage: node init_start.js <base_dir>");
-    console.error("  base_dir: knowledge base profile root (e.g. D:/knowledge/articles/ai)");
-    console.error("  Or set KB_DEFAULT_PROFILE environment variable");
-    process.exit(1);
-}
+const [, , profileArg] = process.argv;
+const { profileDir: baseDir } = resolveProfile(profileArg, "init", {});
 
 // ─── Directory Creation ──────────────────────────────────────────────────────
 

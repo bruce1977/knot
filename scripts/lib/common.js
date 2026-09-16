@@ -287,6 +287,38 @@ function getProfileDir() {
     return defaultProfile || null;
 }
 
+// Resolve profile from argument or environment, load config section, apply defaults.
+// Exits with error if profile cannot be determined.
+// @param {string} [profileArg] - Profile argument from command line
+// @param {string} section - Config section name (e.g., 'analyze', 'archive', 'weknora')
+// @param {Object} defaults - Default values for the section
+// @returns {{ profileDir: string, sectionConfig: Object }}
+function resolveProfile(profileArg, section, defaults = {}) {
+    const profile = profileArg || process.env.KB_DEFAULT_PROFILE;
+    if (!profile) {
+        console.error("Error: profile is required");
+        console.error("  Pass it as argument or set KB_DEFAULT_PROFILE environment variable");
+        process.exit(1);
+    }
+
+    const basePath = process.env.KB_BASE_PATH;
+    const profileDir = basePath ? path.join(basePath, profile) : profile;
+
+    let sectionConfig = { ...defaults };
+    const configPath = path.join(profileDir, ".config", "config.json");
+
+    if (fs.existsSync(configPath)) {
+        try {
+            const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+            sectionConfig = { ...defaults, ...(config[section] || {}) };
+        } catch (e) {
+            // Ignore config loading errors
+        }
+    }
+
+    return { profileDir, sectionConfig };
+}
+
 // ─── Exports ─────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -325,4 +357,5 @@ module.exports = {
 
     // Profile
     getProfileDir,
+    resolveProfile,
 };

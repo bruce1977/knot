@@ -1,60 +1,47 @@
 ﻿const fs = require("fs");
 const path = require("path");
-const { sleep, moveFile, getProfileDir } = require("./lib/common");
+const { sleep, moveFile, resolveProfile } = require("./lib/common");
 const { splitFrontmatter } = require("./lib/frontmatter");
 const { WeknoraClient } = require("./lib/weknora");
 
 const SCRIPT_TIMEOUT_MS = parseInt(process.env.SYNC_SCRIPT_TIMEOUT_MS || "600000", 10);
 const PER_ARTICLE_TIMEOUT_MS = 60000;
 
-const [, , sourceDirArg, targetDirArg, configPathParam] = process.argv;
-const profileDir = getProfileDir();
+// ─── Argument Parsing ────────────────────────────────────────────────────────
 
-let sourceDir = sourceDirArg;
-let targetDir = targetDirArg;
-let configPath = configPathParam;
+const [, , profileArg] = process.argv;
+const { profileDir, sectionConfig: weknoraConfig } = resolveProfile(profileArg, "weknora", {
+    source_folder: "marked",
+    target_folder: "weknora",
+    kb_id: "",
+    wiki_kb_id: "",
+    score_threshold: 0,
+    concurrency: 1,
+    submit_interval_ms: 15000,
+    submit_wiki_interval_ms: 15000,
+    batch_size: 0,
+    dedup_enabled: false,
+    custom_metas: {},
+    max_consecutive_failures: 3,
+    abort_grace_ms: 30000,
+    rollback_on_publish_failure: true,
+    submit_timeout_seconds: 0,
+});
 
-if ((!sourceDir || !targetDir || !configPath) && profileDir) {
-    const profileConfigPath = `${profileDir}/.config/config.json`;
-    if (fs.existsSync(profileConfigPath)) {
-        try {
-            const config = JSON.parse(fs.readFileSync(profileConfigPath, "utf-8"));
-            const weknoraConfig = config.weknora || {};
-            if (!sourceDir) sourceDir = `${profileDir}/${weknoraConfig.source_folder || "marked"}`;
-            if (!targetDir) targetDir = `${profileDir}/${weknoraConfig.target_folder || "weknora"}`;
-            if (!configPath) configPath = profileConfigPath;
-        } catch (e) {
-        }
-    }
-}
+const sourceDir = path.join(profileDir, weknoraConfig.source_folder);
+const targetDir = path.join(profileDir, weknoraConfig.target_folder);
 
-if (!sourceDir) sourceDir = profileDir ? `${profileDir}/marked` : null;
-if (!targetDir) targetDir = profileDir ? `${profileDir}/weknora` : null;
-
-if (!sourceDir || !targetDir) {
-    console.error("Usage: node weknora_start_to_sync.js <source_dir> <target_dir> <config.json|kb_id>");
-    console.error("  Or set KB_DEFAULT_PROFILE environment variable to use default directories");
-    process.exit(1);
-}
-
-if (!configPath) {
-    console.error("FATAL: config.json is required. Provide as argument or set KB_DEFAULT_PROFILE");
-    process.exit(1);
-}
-
+// Load full config for custom_metas and other settings
+const configPath = path.join(profileDir, ".config", "config.json");
 let config;
 try {
-    if (!configPath.endsWith(".json") && !configPath.includes("/") && !configPath.includes("\\")) {
-        const altPath = path.join(profileDir || "", ".config", "config.json");
-        if (fs.existsSync(altPath)) configPath = altPath;
-    }
     config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
 } catch (e) {
     console.error("FATAL: failed to load config " + configPath + ": " + e.message);
     process.exit(1);
 }
 
-const syncCfg = { ...config, ...(config.weknora || {}) };
+const syncCfg = { ...config, ...weknoraConfig };
 const kbId = syncCfg.kb_id || "";
 const wikiKbId = syncCfg.wiki_kb_id || null;
 const scoreThreshold = parseFloat(syncCfg.score_threshold || "0");
