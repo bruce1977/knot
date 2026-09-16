@@ -97,7 +97,7 @@ node skills/knowledge/scripts/analyze_start.js <source_dir> <target_dir> [batch_
 
 | 变量 | 必填 | 默认值 | 说明 |
 |------|------|--------|------|
-| `KB_LLM_BASE_URL` | 否 | `http://localhost:11434/v1` | LLM API 地址（OpenAI 兼容） |
+| `KB_LLM_BASE_URL` | 否 | `http://localhost:11434` | LLM API 地址（OpenAI 兼容） |
 | `KB_LLM_API_KEY` | 否 | 空 | LLM API 密钥（Ollama 可留空） |
 | `KB_LLM_MODEL` | 否 | `qwen2.5:3b` | 默认模型（meta 和 rate 共用） |
 | `KB_LLM_META_MODEL` | 否 | 继承 `KB_LLM_MODEL` | 元数据提取专用模型（覆盖默认） |

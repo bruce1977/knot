@@ -139,7 +139,7 @@ Profile 路径解析：`${KB_BASE_PATH}/${KB_DEFAULT_PROFILE}`（如 `D:\knowled
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `KB_LLM_BASE_URL` | `http://localhost:11434/v1` | LLM API 地址 |
+| `KB_LLM_BASE_URL` | `http://localhost:11434` | LLM API 地址 |
 | `KB_LLM_API_KEY` | 空 | LLM API 密钥 |
 | `KB_LLM_MODEL` | `qwen2.5:3b` | 默认模型 |
 | `KB_LLM_META_MODEL` | 继承 `KB_LLM_MODEL` | 元数据提取专用模型 |
@@ -202,7 +202,7 @@ LLM 客户端（`scripts/lib/llm.js`）支持两种后端类型：
 
 ```bash
 KB_LLM_PROVIDER=ollama
-KB_LLM_BASE_URL=http://localhost:11434/v1
+KB_LLM_BASE_URL=http://localhost:11434
 KB_LLM_MODEL=qwen3.5:4b
 ```
 

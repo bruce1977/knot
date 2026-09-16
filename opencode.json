@@ -31,7 +31,7 @@
   "env": {
     "KB_LLM_BASE_URL": {
       "description": "LLM API 地址（OpenAI 兼容）",
-      "default": "http://localhost:11434/v1"
+      "default": "http://localhost:11434"
     },
     "KB_LLM_API_KEY": {
       "description": "LLM API 密钥（Ollama 可留空）",

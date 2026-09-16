@@ -137,7 +137,7 @@ Profile path resolution: `${KB_BASE_PATH}/${KB_DEFAULT_PROFILE}` (e.g., `D:\know
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `KB_LLM_BASE_URL` | `http://localhost:11434/v1` | LLM API address |
+| `KB_LLM_BASE_URL` | `http://localhost:11434` | LLM API address |
 | `KB_LLM_API_KEY` | empty | LLM API key |
 | `KB_LLM_MODEL` | `qwen2.5:3b` | Default model |
 | `KB_LLM_META_MODEL` | inherits `KB_LLM_MODEL` | Metadata extraction model |
@@ -202,7 +202,7 @@ The LLM client (`scripts/lib/llm.js`) supports two backend types:
 
 ```bash
 KB_LLM_PROVIDER=ollama
-KB_LLM_BASE_URL=http://localhost:11434/v1
+KB_LLM_BASE_URL=http://localhost:11434
 KB_LLM_MODEL=qwen3.5:4b
 ```
 

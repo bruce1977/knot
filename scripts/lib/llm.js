@@ -3,7 +3,7 @@ const { stripFrontmatter } = require("./frontmatter");
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
-const KB_LLM_BASE_URL = process.env.KB_LLM_BASE_URL || "http://localhost:11434/v1";
+const KB_LLM_BASE_URL = process.env.KB_LLM_BASE_URL || "http://localhost:11434";
 const KB_LLM_API_KEY = process.env.KB_LLM_API_KEY || "";
 const DEFAULT_MODEL = "qwen2.5:3b";
 const MODEL = process.env.KB_LLM_MODEL || DEFAULT_MODEL;
@@ -137,16 +137,10 @@ function stripThinking(text) {
 
 // ─── LLM Chat ────────────────────────────────────────────────────────────────
 
-// Derive Ollama native API base (e.g. "http://localhost:11434") from the
-// configured base URL (which may include a /v1 OpenAI-compat suffix).
-function ollamaNativeBaseUrl() {
-    return KB_LLM_BASE_URL.replace(/\/v1\/?$/, "").replace(/\/$/, "");
-}
-
 // Ollama native /api/chat: think:false reliably disables reasoning for Qwen3.5,
 // whereas the OpenAI-compatible /v1/chat/completions endpoint ignores it.
 async function callOllamaNativeChat(systemPrompt, userPrompt, useModel, params, signal) {
-    const res = await fetch(`${ollamaNativeBaseUrl()}/api/chat`, {
+    const res = await fetch(`${KB_LLM_BASE_URL}/api/chat`, {
         method: "POST",
         headers: buildHeaders(),
         body: JSON.stringify({
@@ -176,7 +170,8 @@ async function callOllamaNativeChat(systemPrompt, userPrompt, useModel, params, 
 // OpenAI-compatible /chat/completions. Qwen3.5 in thinking mode may leave
 // content empty while reasoning holds the JSON; salvage it as a fallback.
 async function callOpenAICompatChat(systemPrompt, userPrompt, useModel, params, signal) {
-    const res = await fetch(`${KB_LLM_BASE_URL}/chat/completions`, {
+    const compatBaseUrl = isOllamaTarget() ? `${KB_LLM_BASE_URL}/v1` : KB_LLM_BASE_URL;
+    const res = await fetch(`${compatBaseUrl}/chat/completions`, {
         method: "POST",
         headers: buildHeaders(),
         body: JSON.stringify({
