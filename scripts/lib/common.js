@@ -12,7 +12,7 @@ const HASH_ROUNDS = 3;
 const HASH_LENGTH = 12;
 
 // Markdown validation thresholds.
-const MIN_FILE_SIZE = 1024;        // 1KB
+const MIN_FILE_SIZE = 512;        // 1KB
 const MIN_TEXT_LENGTH = 200;       // minimum 200 characters of plain text
 const MIN_CHINESE_RATIO = 0.1;    // Chinese character ratio >= 10%
 
@@ -305,7 +305,7 @@ function resolveProfile(profileArg, section, defaults = {}) {
     const profileDir = basePath ? path.join(basePath, profile) : profile;
 
     let sectionConfig = { ...defaults };
-    const configPath = path.join(profileDir, ".config", "config.json");
+    const configPath = path.join(profileDir, "$config", "config.json");
 
     if (fs.existsSync(configPath)) {
         try {

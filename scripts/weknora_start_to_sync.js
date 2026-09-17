@@ -31,17 +31,7 @@ const { profileDir, sectionConfig: weknoraConfig } = resolveProfile(profileArg, 
 const sourceDir = path.join(profileDir, weknoraConfig.source_folder);
 const targetDir = path.join(profileDir, weknoraConfig.target_folder);
 
-// Load full config for custom_metas and other settings
-const configPath = path.join(profileDir, ".config", "config.json");
-let config;
-try {
-    config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-} catch (e) {
-    console.error("FATAL: failed to load config " + configPath + ": " + e.message);
-    process.exit(1);
-}
-
-const syncCfg = { ...config, ...weknoraConfig };
+const syncCfg = weknoraConfig;
 const kbId = syncCfg.kb_id || "";
 const wikiKbId = syncCfg.wiki_kb_id || null;
 const scoreThreshold = parseFloat(syncCfg.score_threshold || "0");
@@ -112,7 +102,7 @@ function selectTarget(fields) {
     return { score, target: pickTargetKB(score) };
 }
 
-const dedupDir = path.join(path.dirname(sourceDir), "dupl");
+const dedupDir = path.join(sourceDir, "dupl");
 
 // An entry only counts as real content once its custom_metadata survived -
 // the metas are written before publishing, so a missing block means the previous

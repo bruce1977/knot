@@ -6,7 +6,7 @@
 
 | 功能 | 脚本 | 说明 |
 |------|------|------|
-| init | `init_start.js` | 初始化目录结构和 `.config/config.json` |
+| init | `init_start.js` | 初始化目录结构和 `$config/config.json` |
 | analyze | `analyze_start.js` | 元数据提取 + 五维评分 + 合并 frontmatter |
 | sync | `weknora_start_to_sync.js` | 将终稿导入 WeKnora（直传普通库 / wiki 库） |
 | archive | `archive_start.js` | 按文件年龄归档旧文件 |
@@ -15,7 +15,7 @@
 
 ```
 ${profile}/
-├── .config/
+├── $config/
 │   ├── config.json              ← 主配置文件
 │   ├── extractor_meta_config.json   ← 可选：覆盖 meta 插件配置
 │   └── extractor_rate_config.json   ← 可选：覆盖 rate 插件配置
@@ -32,7 +32,7 @@ graph LR
     inbox[原始文档目录 inbox/] -->|分析脚本 analyze_start.js| marked[已分析目录 marked/]
     marked -->|同步脚本 weknora_start_to_sync.js| weknora[WeKnora 远程知识库]
     weknora -->|归档脚本 archive_start.js| archived[归档目录 archived/]
-    cfg[配置文件 .config/config.json] -.->|初始化脚本 init_start.js| inbox
+    cfg[配置文件 $config/config.json] -.->|初始化脚本 init_start.js| inbox
 ```
 
 ## 快速开始
@@ -176,10 +176,10 @@ scripts/plugins/
 }
 ```
 
-要覆盖默认配置，在 profile 的 `.config/` 下放一个**同名**文件即可，无需在 `config.json` 里声明：
+要覆盖默认配置，在 profile 的 `$config/` 下放一个**同名**文件即可，无需在 `config.json` 里声明：
 
 ```
-${profile}/.config/extractor_meta_config.json    ← 存在则覆盖，否则用插件目录默认文件
+${profile}/$config/extractor_meta_config.json    ← 存在则覆盖，否则用插件目录默认文件
 ```
 
 文件名固定为 `<插件名>_config.json`。覆盖文件为**整体替换**，需包含完整的 `prompt` 与 `schema` 两段。

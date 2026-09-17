@@ -6,7 +6,7 @@ Core skill for knowledge base pipeline, providing four main functions: initializ
 
 | Function | Script | Description |
 |----------|--------|-------------|
-| init | `init_start.js` | Initialize directory structure and `.config/config.json` |
+| init | `init_start.js` | Initialize directory structure and `$config/config.json` |
 | analyze | `analyze_start.js` | Metadata extraction + 5-dimension rating + merge frontmatter |
 | sync | `weknora_start_to_sync.js` | Import final documents to WeKnora (direct to normal/wiki KB) |
 | archive | `archive_start.js` | Archive old files by age |
@@ -15,7 +15,7 @@ Core skill for knowledge base pipeline, providing four main functions: initializ
 
 ```
 ${profile}/
-├── .config/
+├── $config/
 │   ├── config.json              ← Main configuration file
 │   ├── extractor_meta_config.json   ← Optional: overrides the meta plugin config
 │   └── extractor_rate_config.json   ← Optional: overrides the rate plugin config
@@ -174,11 +174,11 @@ File shape:
 }
 ```
 
-To override the defaults, drop a same-named file into the profile's `.config/`
+To override the defaults, drop a same-named file into the profile's `$config/`
 — no entry in `config.json` is needed:
 
 ```
-${profile}/.config/extractor_meta_config.json    ← used if present, else the built-in one
+${profile}/$config/extractor_meta_config.json    ← used if present, else the built-in one
 ```
 
 The file name is fixed as `<plugin-name>_config.json`. An override replaces the

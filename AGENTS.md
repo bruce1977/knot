@@ -16,7 +16,7 @@
 
 1. **Initialization** (`init`):
    - Creates directory structure: `inbox/`, `marked/`, `weknora/`, `archived/`
-   - Generates default `.config/config.json`
+   - Generates default `$config/config.json`
    - Command: `node scripts/init_start.js <base_dir>`
 
 2. **Analysis** (`analyze`):
@@ -43,9 +43,9 @@
 - Sync: `WEKNORA_BASE_URL`, `WEKNORA_API_KEY`
 
 **Configuration Files**:
-- `.config/config.json`: Main configuration
+- `$config/config.json`: Main configuration
 - `scripts/plugins/<plugin>_config.json`: Prompt + schema for each plugin (default)
-- `.config/<plugin>_config.json`: Optional per-profile override, picked up automatically
+- `$config/<plugin>_config.json`: Optional per-profile override, picked up automatically
 
 ## Interaction Patterns
 

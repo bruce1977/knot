@@ -39,12 +39,12 @@ class BaseExtractor {
         return process.env[this.modelEnvVar] || process.env.KB_LLM_MODEL || "qwen2.5:3b";
     }
 
-    // Profile override: ${profile}/.config/<plugin>_config.json, if it exists.
+    // Profile override: ${profile}/$config/<plugin>_config.json, if it exists.
     // Otherwise the built-in one shipped next to the plugin.
     getConfigPath() {
         const fileName = `${this.pluginName}_config.json`;
         if (this.profileDir) {
-            const profilePath = path.join(this.profileDir, ".config", fileName);
+            const profilePath = path.join(this.profileDir, "$config", fileName);
             if (fs.existsSync(profilePath)) return profilePath;
         }
         return path.join(PLUGIN_DIR, fileName);

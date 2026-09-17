@@ -9,7 +9,7 @@ description: "知识库管线技能：初始化目录、文档分析（元数据
 
 | 功能 | 脚本 | 说明 |
 |------|------|------|
-| **init** | `init_start.js` | 初始化目录结构和 `.config/config.json` |
+| **init** | `init_start.js` | 初始化目录结构和 `$config/config.json` |
 | **analyze** | `analyze_start.js` | 元数据提取 + 五维评分 + 合并 frontmatter |
 | **sync** | `weknora_start_to_sync.js` | 将终稿导入 WeKnora 远程知识库 |
 | **archive** | `archive_start.js` | 按文件年龄归档旧文件 |
@@ -22,7 +22,7 @@ description: "知识库管线技能：初始化目录、文档分析（元数据
 
 ```
 ${profile}/
-├── .config/
+├── $config/
 │   ├── config.json              ← 主配置文件
 │   ├── extractor_meta_config.json   ← 可选：覆盖 meta 插件配置
 │   └── extractor_rate_config.json   ← 可选：覆盖 rate 插件配置
@@ -36,7 +36,7 @@ ${profile}/
 
 ## 功能一：初始化 (init)
 
-创建知识库 profile 根目录下的目录结构和默认 `.config/config.json`。幂等操作——已存在的目录/文件不会被覆盖。
+创建知识库 profile 根目录下的目录结构和默认 `$config/config.json`。幂等操作——已存在的目录/文件不会被覆盖。
 
 ### 调用方式
 
@@ -132,10 +132,10 @@ scripts/plugins/
 }
 ```
 
-要覆盖默认配置，在 profile 的 `.config/` 下放一个**同名**文件即可，无需在 `config.json` 里声明：
+要覆盖默认配置，在 profile 的 `$config/` 下放一个**同名**文件即可，无需在 `config.json` 里声明：
 
 ```
-${profile}/.config/extractor_meta_config.json    ← 存在则覆盖，否则用插件目录默认文件
+${profile}/$config/extractor_meta_config.json    ← 存在则覆盖，否则用插件目录默认文件
 ```
 
 文件名固定为 `<插件名>_config.json`。覆盖文件是**整体替换**，需包含完整的 `prompt` 与 `schema` 两段。
@@ -159,7 +159,7 @@ analyze_start.js                 ← Main entry: orchestrates full pipeline
 
 ### 插件列表
 
-插件列表在 `.config/config.json` 的 `analyze` 节下配置，按数组顺序执行（后者覆盖前者）：
+插件列表在 `$config/config.json` 的 `analyze` 节下配置，按数组顺序执行（后者覆盖前者）：
 
 ```json
 {
@@ -298,7 +298,7 @@ node scripts/kb-weknora.js <profile>
 
 ### config.json 结构
 
-脚本读取 `.config/config.json` 中的 `weknora` 节，完整默认配置见「功能一」；关键字段如下：
+脚本读取 `$config/config.json` 中的 `weknora` 节，完整默认配置见「功能一」；关键字段如下：
 
 | 字段 | 必填 | 说明 |
 |------|------|------|

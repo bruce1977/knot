@@ -5,7 +5,7 @@ const { resolveProfile } = require("./lib/common");
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const DIRS = ["inbox", "marked", "weknora", "archived"];
-const CONFIG_DIR = ".config";
+const CONFIG_DIR = "$config";
 
 const DEFAULT_CONFIG = {
     analyze: {
@@ -71,7 +71,7 @@ if (!fs.existsSync(configDir)) {
 const configPath = path.join(configDir, "config.json");
 if (!fs.existsSync(configPath)) {
     fs.writeFileSync(configPath, JSON.stringify(DEFAULT_CONFIG, null, 2) + "\n");
-    console.log("  CREATED .config/config.json (default)");
+    console.log(`  CREATED ${CONFIG_DIR}/config.json (default)`);
     created++;
 }
 
