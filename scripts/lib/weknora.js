@@ -9,7 +9,8 @@ function parseTagList(res) {
 
 class WeknoraClient {
     constructor(apiBase, apiKey, options = {}) {
-        this.apiBase = apiBase;
+        const base = apiBase.replace(/\/$/, "");
+        this.apiBase = base.endsWith("/api/v1") ? base : base + "/api/v1";
         this.apiKey = apiKey;
         this.timeoutMs = options.timeoutMs || DEFAULT_REQUEST_TIMEOUT_MS;
         this._tagCaches = {};
