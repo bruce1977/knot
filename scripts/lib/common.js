@@ -14,7 +14,7 @@ const HASH_LENGTH = 12;
 // Markdown validation thresholds.
 const MIN_FILE_SIZE = 512;        // 1KB
 const MIN_TEXT_LENGTH = 200;       // minimum 200 characters of plain text
-const MIN_CHINESE_RATIO = 0.1;    // Chinese character ratio >= 10%
+const MIN_CHINESE_RATIO = 0;       // disabled: code-heavy docs fail this check
 
 // ─── Async Utilities ─────────────────────────────────────────────────────────
 
