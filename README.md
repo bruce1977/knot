@@ -9,6 +9,7 @@ Core skill for knowledge base pipeline, providing four main functions: initializ
 | init | `init_start.js` | Initialize directory structure and `$config/config.json` |
 | analyze | `analyze_start.js` | Metadata extraction + 5-dimension rating + merge frontmatter |
 | sync | `weknora_start_to_sync.js` | Import final documents to WeKnora (direct to normal/wiki KB) |
+| sync:forge | `weknora_forge_start_to_sync.js` | Same sync flow via WeKnora Forge (signed HMAC + one-shot publish) |
 | archive | `archive_start.js` | Archive old files by age |
 
 ## Directory Structure
@@ -54,6 +55,16 @@ node scripts/analyze_start.js <source_dir> <target_dir> [batch_size]
 ```bash
 node scripts/weknora_start_to_sync.js <source_dir> <target_dir> <config.json>
 ```
+
+### Sync via WeKnora Forge
+
+```bash
+npm run sync:forge
+# or
+node --env-file=.env scripts/weknora_forge_start_to_sync.js [profile]
+```
+
+Requires env `WEKNORA_FORGE_BASE_URL` (plus `WEKNORA_API_KEY` / `WEKNORA_API_SECRET`, or profile `weknora.api_key` / `weknora.api_secret`). See [Sync via WeKnora Forge](#sync-via-weknora-forge-syncforge).
 
 ### Archive
 
@@ -103,7 +114,7 @@ Key fields in `config.json`'s `weknora` section:
 | `wiki_submit_interval_ms` | ❌ | Wait interval for wiki KB uploads (default 600000) |
 | `submit_interval_ms` | ❌ | Fallback wait interval after publishing |
 | `batch_size` | ❌ | Max articles per run (0 = all) |
-| `dedup_enabled` | ❌ | Enable title + hash dedup |
+| `dedup_enabled` | ❌ | Legacy script only: enable title + hash dedup (`sync:forge` ignores this and always dedups when `hash` is present) |
 | `custom_metas` | ✅ | Field mapping for WeKnora custom_metadata |
 | `max_consecutive_failures` | ❌ | Consecutive failures before aborting the run (default 3) |
 | `abort_grace_ms` | ❌ | Grace period for in-flight requests after abort, then kills the process (default 30000) |
@@ -121,6 +132,57 @@ Key fields in `config.json`'s `weknora` section:
 | Consecutive failures | After `max_consecutive_failures` (default 3), stop taking new work and **exit the process with a non-zero code**. Remaining articles stay in the source directory |
 | Tag assignment failure | Throw, local file **not moved**, reprocessed on next run |
 | Slow summary generation | Mitigated by wait intervals, tunable in config |
+
+## Sync via WeKnora Forge (sync:forge)
+
+`scripts/weknora_forge_start_to_sync.js` performs the same profile/config/KB-routing/dedup/move flow as `weknora_start_to_sync.js`, but talks to **WeKnora Forge** instead of the raw WeKnora HTTP API. The original script is unchanged.
+
+### Call
+
+```bash
+npm run sync:forge [profile]
+```
+
+### Environment variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `KB_BASE_PATH` / `KB_DEFAULT_PROFILE` | ❌ | Profile root (else pass `<profile>` on the CLI) |
+| `WEKNORA_FORGE_BASE_URL` | ✅ | Forge base URL |
+| `WEKNORA_API_KEY` | ✅* | `X-API-Key` (*profile `weknora.api_key` wins if set) |
+| `WEKNORA_API_SECRET` | ✅* | HMAC-SHA256 signing secret (*profile `weknora.api_secret` wins if set) |
+
+Signature: `X-Forge-Signature = hex(HMAC_SHA256(api_secret, METHOD + FULL_PATH))` where `FULL_PATH` includes the raw query string (no normalization).
+
+### Auth / config resolution
+
+1. Profile `$config/config.json` → `weknora.api_key` / `weknora.api_secret`
+2. Else env `WEKNORA_API_KEY` / `WEKNORA_API_SECRET`
+
+`WEKNORA_FORGE_BASE_URL` is always read from the environment.
+
+### Per-article publish
+
+One Forge call replaces draft → metadata → publish:
+
+`POST .../knowledge/publish` with `{kb_id, title, content, description?, tag_names, custom_metas, sync}`.
+
+`sync` comes from config `publish_sync` (default `false`): when true the backend indexes immediately instead of waiting on the async pipeline. Tags are resolved server-side; failures roll back server-side.
+
+### Dedup (forge)
+
+Dedup always runs when the file has a frontmatter `hash` (no config switch):
+
+1. Search **only** `custom_metadata.hash = '<hash>'` across normal + wiki KBs (`title` is not part of the query).
+2. Compare `item.title === submitTitle` against each hit (`submitTitle` = frontmatter `title`, else filename without `.md`).
+3. Any hit with the same title → `DUP`, move to `marked/dupl/`. Hash present but titles differ (or no hits) → publish as usual.
+
+### Extra config fields
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `publish_sync` | `false` | Publish payload `sync` flag (immediate index) |
+| `api_key` / `api_secret` | `""` | Forge credentials (override env when set) |
 
 ## Environment Variables
 
@@ -152,6 +214,10 @@ Profile path resolution: `${KB_BASE_PATH}/${KB_DEFAULT_PROFILE}` (e.g., `D:\know
 | `PB_KNOWLEDGE_BASE_PATH` | required | Knowledge base root directory |
 | `WEKNORA_BASE_URL` | required | WeKnora API base URL |
 | `WEKNORA_API_KEY` | required | API key |
+| `WEKNORA_FORGE_BASE_URL` | required for `sync:forge` | WeKnora Forge base URL |
+| `WEKNORA_API_SECRET` | required for `sync:forge`* | Forge HMAC secret (`weknora.api_secret` takes priority) |
+
+\* `sync:forge` also needs `WEKNORA_API_KEY` / profile `api_key` as above.
 
 ## Plugin Configs (Prompts & Schemas)
 
@@ -225,10 +291,13 @@ scripts/
 ├── analyze_extract_rate.js  ← Rating extraction module
 ├── analyze_frontmatter.js   ← YAML frontmatter generation
 ├── weknora_start_to_sync.js ← WeKnora sync
+├── weknora_forge_start_to_sync.js ← WeKnora Forge sync
 ├── archive_start.js         ← Archiving
 └── lib/
     ├── llm.js               ← LLM client
     ├── common.js            ← Utility functions (includes getProfileDir)
+    ├── weknora.js           ← WeKnora HTTP client
+    ├── weknora_forge.js     ← WeKnora Forge client (HMAC + search + publish)
     ├── content_hash.js      ← Content hash
     └── validate_md.js       ← Markdown format validation
 ```
@@ -258,3 +327,4 @@ Usage in scripts: If command-line arguments are not provided, scripts use `getPr
 - Final filename `${title}.md`: **no longer contains hash**; hash is only in frontmatter's `hash` field and WeKnora's `custom_metadata.hash`
 - Duplicate name strategy: if same name exists, same hash → overwrite; different hash → append number `${title}(1).md`, `${title}(2).md` ...
 - Sync side **no longer does hash deduplication** or **temporary KB周转**: articles upload directly to target KB, summaries generated by WeKnora; duplicate detection left for future SQL queries on WeKnora KB
+- **Exception — `sync:forge`:** when frontmatter has `hash`, always query remote KBs by `hash` only, then mark `DUP` only if a hit’s `title` exactly equals the submit title (see [Sync via WeKnora Forge](#sync-via-weknora-forge-syncforge))

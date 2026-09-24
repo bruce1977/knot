@@ -24,6 +24,7 @@ const DEFAULT_CONFIG = {
         normal_submit_interval_ms: 30000,
         wiki_submit_interval_ms: 600000,
         sync_enabled: true,
+        publish_sync: false,
         custom_metas: {
             source: "$source",
             author: "$auther",

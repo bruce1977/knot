@@ -12,6 +12,7 @@ description: "知识库管线技能：初始化目录、文档分析（元数据
 | **init** | `init_start.js` | 初始化目录结构和 `$config/config.json` |
 | **analyze** | `analyze_start.js` | 元数据提取 + 五维评分 + 合并 frontmatter |
 | **sync** | `weknora_start_to_sync.js` | 将终稿导入 WeKnora 远程知识库 |
+| **sync:forge** | `weknora_forge_start_to_sync.js` | 同上，但走 WeKnora Forge（HMAC 签名 + 一次性发布） |
 | **archive** | `archive_start.js` | 按文件年龄归档旧文件 |
 
 > 本技能为**纯脚本驱动**，不依赖 LLM Agent。调用方通过不同命令选择功能。
@@ -310,7 +311,7 @@ node scripts/kb-weknora.js <profile>
 | `wiki_submit_interval_ms` | ❌ | wiki 库每篇上传后的等待间隔（默认 600000） |
 | `submit_interval_ms` | ❌ | 等待间隔回退值 |
 | `batch_size` | ❌ | 本次最多处理篇数（0 = 全部） |
-| `dedup_enabled` | ❌ | 是否启用 title + hash 去重 |
+| `dedup_enabled` | ❌ | 旧脚本 `weknora_start_to_sync.js` 的 title+hash 去重开关（forge 脚本不读） |
 | `custom_metas` | ✅ | 上传到 WeKnora custom_metadata 的字段映射 |
 | `max_consecutive_failures` | ❌ | 连续失败多少篇后中止流程（默认 3） |
 | `abort_grace_ms` | ❌ | 中止后在途请求的宽限期，超时强杀进程（默认 30000） |
@@ -358,6 +359,37 @@ graph TD
 | 连续失败 | 连续 `max_consecutive_failures`（默认 3）篇失败即判定后端异常，**停止领新文章并退出进程**，剩余文章留待人工处理 |
 | 分配 tags 失败 | 抛出，本地文件**不移动**，下次运行重新处理 |
 | 摘要生成较慢 | 通过等待间隔缓解，间隔按实际硬件在 config 中调优 |
+
+### 通过 WeKnora Forge 同步 (sync:forge)
+
+`scripts/weknora_forge_start_to_sync.js` 复用同一套 profile / `weknora` 配置 / 目标库分流 / 移动文件流程，但 API 改走 WeKnora Forge（HMAC 签名 + 一次性 publish）；原脚本 `weknora_start_to_sync.js` 不变。
+
+```bash
+npm run sync:forge [profile]
+# 或
+node --env-file=.env scripts/weknora_forge_start_to_sync.js [profile]
+```
+
+| 环境变量 | 必填 | 说明 |
+|----------|------|------|
+| `WEKNORA_FORGE_BASE_URL` | ✅ | Forge 服务地址 |
+| `WEKNORA_API_KEY` / profile `weknora.api_key` | ✅ | `X-API-Key`（profile 优先） |
+| `WEKNORA_API_SECRET` / profile `weknora.api_secret` | ✅ | HMAC-SHA256 密钥（profile 优先） |
+
+签名：`X-Forge-Signature = hex(HMAC_SHA256(api_secret, METHOD + FULL_PATH))`，`FULL_PATH` 含原始 query，不做规范化。
+
+**去重（forge，frontmatter 有 `hash` 时始终执行，无开关）：**
+
+1. 仅按 `custom_metadata.hash` 查询普通库 + wiki 库（查询条件**不含** title）
+2. 逐条比对命中结果的 `title === submitTitle`（`title` 缺省回退文件名去 `.md`）
+3. 完全一致 → `DUP` 移入 `marked/dupl/`；hash 有但 title 都不同 / 无结果 → 继续发布
+
+**额外配置字段：**
+
+| 字段 | 默认 | 说明 |
+|------|------|------|
+| `publish_sync` | `false` | 发布 payload 的 `sync`（true = 发布后立即索引） |
+| `api_key` / `api_secret` | `""` | 非空时优先于环境变量 |
 
 ---
 

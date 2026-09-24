@@ -16,6 +16,7 @@
     "init": "node --env-file=.env scripts/init_start.js",
     "analyze": "node --env-file=.env scripts/analyze_start.js",
     "sync": "node --env-file=.env scripts/weknora_start_to_sync.js",
+    "sync:forge": "node --env-file=.env scripts/weknora_forge_start_to_sync.js",
     "archive": "node --env-file=.env scripts/archive_start.js"
   },
   "author": "Bruce Jiang",

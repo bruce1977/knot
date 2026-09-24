@@ -32,6 +32,12 @@
    - Handles tags assignment and metadata
    - Command: `node scripts/weknora_start_to_sync.js <source_dir> <target_dir> <config.json>`
 
+   **Forge variant** (`sync:forge`):
+   - Same pipeline via WeKnora Forge (HMAC `X-API-Key` + `X-Forge-Signature`)
+   - One-shot `publish` payload (`sync` flag from config `publish_sync`)
+   - Dedup: always (when frontmatter has `hash`); query remote KBs by `custom_metadata.hash` only, then exact `title` match
+   - Command: `node scripts/weknora_forge_start_to_sync.js [profile]`
+
 4. **Archive** (`archive`):
    - Moves old files based on age (mtime)
    - Configurable retention period
@@ -41,6 +47,7 @@
 - Profile: `KB_BASE_PATH`, `KB_DEFAULT_PROFILE`
 - Analysis: `KB_LLM_BASE_URL`, `KB_LLM_API_KEY`, `KB_LLM_MODEL`, `KB_LLM_PROVIDER`
 - Sync: `WEKNORA_BASE_URL`, `WEKNORA_API_KEY`
+- Forge sync: `WEKNORA_FORGE_BASE_URL`, `WEKNORA_API_KEY`, `WEKNORA_API_SECRET` (or profile `weknora.api_key` / `weknora.api_secret`)
 
 **Configuration Files**:
 - `$config/config.json`: Main configuration

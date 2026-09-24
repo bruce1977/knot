@@ -9,6 +9,7 @@
 | init | `init_start.js` | 初始化目录结构和 `$config/config.json` |
 | analyze | `analyze_start.js` | 元数据提取 + 五维评分 + 合并 frontmatter |
 | sync | `weknora_start_to_sync.js` | 将终稿导入 WeKnora（直传普通库 / wiki 库） |
+| sync:forge | `weknora_forge_start_to_sync.js` | 同步流程走 WeKnora Forge（HMAC 签名 + 一次性发布） |
 | archive | `archive_start.js` | 按文件年龄归档旧文件 |
 
 ## 目录结构
@@ -54,6 +55,16 @@ node scripts/kb-analyze.js <profile> [batch_size]
 ```bash
 node scripts/kb-weknora.js <profile>
 ```
+
+### 通过 WeKnora Forge 同步
+
+```bash
+npm run sync:forge
+# 或
+node --env-file=.env scripts/weknora_forge_start_to_sync.js [profile]
+```
+
+需要环境变量 `WEKNORA_FORGE_BASE_URL`（以及 `WEKNORA_API_KEY` / `WEKNORA_API_SECRET`，或 profile 的 `weknora.api_key` / `weknora.api_secret`）。详见 [通过 WeKnora Forge 同步](#通过-weknora-forge-同步syncforge)。
 
 ### 归档
 
@@ -116,13 +127,64 @@ tags 不受影响：`POST .../manual` 在建草稿时就把 `tag_ids` 写进 `kn
 | `wiki_submit_interval_ms` | ❌ | wiki 库每篇上传后等待间隔（默认 600000） |
 | `submit_interval_ms` | ❌ | 每篇发布后的等待间隔回退值 |
 | `batch_size` | ❌ | 本次最多处理多少篇（0 = 全部） |
-| `dedup_enabled` | ❌ | 是否启用 title + hash 去重 |
+| `dedup_enabled` | ❌ | 仅旧脚本：是否启用 title + hash 去重（`sync:forge` 不读此项，有 `hash` 即始终去重） |
 | `custom_metas` | ✅ | 写入 WeKnora custom_metadata 的字段映射 |
 | `max_consecutive_failures` | ❌ | 连续失败多少篇后中止流程（默认 3） |
 | `abort_grace_ms` | ❌ | 中止后在途请求的宽限期，超时强杀进程（默认 30000） |
 | `rollback_on_publish_failure` | ❌ | 发布失败是否回滚删除草稿（默认 true） |
 
 > 兼容性：未配置 `normal_submit_interval_ms` / `wiki_submit_interval_ms` 时，两者均回退到旧字段 `submit_interval_ms`（若也未配则 100ms）。两个间隔默认值（30s / 600s）是按摘要生成耗时估算的，可随硬件升级调整。
+
+## 通过 WeKnora Forge 同步 (sync:forge)
+
+`scripts/weknora_forge_start_to_sync.js` 与 `weknora_start_to_sync.js` 走同一套 profile / 配置 / 目标库分流 / 去重 / 移动文件流程，但改走 **WeKnora Forge** 扩展 API（原脚本保持不动）。
+
+### 调用方式
+
+```bash
+npm run sync:forge [profile]
+```
+
+### 环境变量
+
+| 变量 | 必填 | 说明 |
+|------|------|------|
+| `KB_BASE_PATH` / `KB_DEFAULT_PROFILE` | ❌ | Profile 根目录（也可用 CLI 传入 `<profile>`） |
+| `WEKNORA_FORGE_BASE_URL` | ✅ | Forge 服务地址 |
+| `WEKNORA_API_KEY` | ✅* | `X-API-Key`（*若已配 profile `weknora.api_key` 则以其为准） |
+| `WEKNORA_API_SECRET` | ✅* | HMAC-SHA256 签名密钥（*若已配 profile `weknora.api_secret` 则以其为准） |
+
+签名：`X-Forge-Signature = hex(HMAC_SHA256(api_secret, METHOD + FULL_PATH))`，`FULL_PATH` 含原始 query（不做规范化）。
+
+### 认证 / 配置优先级
+
+1. Profile `$config/config.json` → `weknora.api_key` / `weknora.api_secret`
+2. 否则环境变量 `WEKNORA_API_KEY` / `WEKNORA_API_SECRET`
+
+`WEKNORA_FORGE_BASE_URL` 始终从环境变量读取。
+
+### 单篇发布
+
+一次 Forge 调用取代「草稿 → 写元数据 → 发布」：
+
+`POST .../knowledge/publish`，payload `{kb_id, title, content, description?, tag_names, custom_metas, sync}`。
+
+`sync` 来自配置 `publish_sync`（默认 `false`）：为 true 时后端发布后立即建索引，不等异步管线。tags 在服务端解析；失败时服务端回滚。
+
+### 去重（forge）
+
+文件 frontmatter 含 `hash` 时**始终**去重（无开关）：
+
+1. 仅按 `custom_metadata.hash = '<hash>'` 查询普通库 + wiki 库（**查询条件不含 title**）
+2. 逐条比对命中结果的 `title === submitTitle`（`submitTitle` = frontmatter 的 `title`，缺省回退去 `.md` 的文件名）
+3. 任一命中 title 完全一致 → `DUP`，移入 `marked/dupl/`；hash 存在但 title 均不同（或无命中）→ 正常发布
+
+### 相关配置字段
+
+| 字段 | 默认值 | 说明 |
+|------|--------|------|
+| `publish_sync` | `false` | 发布 payload 的 `sync`（立即索引） |
+| `api_key` / `api_secret` | `""` | Forge 凭证（非空时优先于环境变量） |
 
 ## 环境变量
 
@@ -154,6 +216,10 @@ Profile 路径解析：`${KB_BASE_PATH}/${KB_DEFAULT_PROFILE}`（如 `D:\knowled
 | `PB_KNOWLEDGE_BASE_PATH` | 必填 | 知识库根目录 |
 | `WEKNORA_BASE_URL` | 必填 | WeKnora API 地址 |
 | `WEKNORA_API_KEY` | 必填 | API 密钥 |
+| `WEKNORA_FORGE_BASE_URL` | `sync:forge` 必填 | WeKnora Forge 地址 |
+| `WEKNORA_API_SECRET` | `sync:forge` 必填* | Forge HMAC 密钥（profile `weknora.api_secret` 优先） |
+
+\* `sync:forge` 同样需要 `WEKNORA_API_KEY` / profile `api_key`（见上）。
 
 ## 插件配置（提示词 + 数据结构）
 
@@ -225,10 +291,13 @@ scripts/
 ├── analyze_extract_rate.js  ← 评分提取模块
 ├── analyze_frontmatter.js   ← YAML frontmatter 生成
 ├── weknora_start_to_sync.js ← 同步 WeKnora
+├── weknora_forge_start_to_sync.js ← 同步 WeKnora Forge
 ├── archive_start.js         ← 归档
 └── lib/
     ├── llm.js               ← LLM 客户端
     ├── common.js            ← 通用工具函数（含 getProfileDir）
+    ├── weknora.js           ← WeKnora HTTP 客户端
+    ├── weknora_forge.js     ← WeKnora Forge 客户端（HMAC + 搜索 + 发布）
     ├── content_hash.js      ← 内容 hash
     └── validate_md.js       ← Markdown 格式校验
 ```
@@ -258,3 +327,4 @@ function getProfileDir() {
 - 终稿文件名 `${title}.md`：**不再包含 hash**；hash 仅写入 frontmatter 的 `hash` 字段与 WeKnora 的 `custom_metadata.hash`
 - 同名文件策略：已存在同名文件时，若 `hash` 相同则直接覆盖，不同则追加序号 `${title}(1).md`、`${title}(2).md` …
 - 同步侧**不再做 hash 去重**，**不再经临时库周转**：文章直接上传到目标库（普通库或 wiki 库），摘要由 WeKnora 直接生成；重复检测留待后续通过 SQL 检索 WeKnora 知识库
+- **例外 —— `sync:forge`：** frontmatter 有 `hash` 时始终远端仅按 `hash` 查询，命中结果逐条比对 title，完全一致才判 `DUP`（见 [通过 WeKnora Forge 同步](#通过-weknora-forge-同步syncforge)）

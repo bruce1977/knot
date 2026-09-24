@@ -16,6 +16,9 @@
     "submit_timeout_seconds": 30,
     "submit_wiki_timeout_seconds": 120,
     "sync_enabled": true,
+    "publish_sync": false,
+    "api_key": "",
+    "api_secret": "",
     "custom_metas": {
       "source": "$source",
       "author": "$auther",
