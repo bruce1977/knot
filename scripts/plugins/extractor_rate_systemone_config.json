@@ -1,0 +1,21 @@
+{
+    "endpoint": "/v1/systemone",
+    "model": "jev-latest",
+    "question": {
+        "id": "one_score",
+        "type": "score",
+        "instructions": "Rate the overall quality of this article: consider practical value, technical depth, novelty, and how useful it is to readers. Pick the single label that best matches.",
+        "criteria": [
+            "1 - worthless or spam",
+            "2 - very poor",
+            "3 - poor",
+            "4 - below average",
+            "5 - average",
+            "6 - decent",
+            "7 - good",
+            "8 - very good",
+            "9 - excellent",
+            "10 - exceptional"
+        ]
+    }
+}

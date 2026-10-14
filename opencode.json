@@ -55,6 +55,20 @@
       "description": "后端类型：auto/ollama/openai",
       "default": "auto"
     },
+    "KB_SYSTEMONE_BASE_URL": {
+      "description": "TypeSafe AI System One API 地址（extractor_rate_systemone 插件）",
+      "default": "https://api.typesafe.ai"
+    },
+    "KB_SYSTEMONE_API_KEY": {
+      "description": "TypeSafe AI API 密钥（extractor_rate_systemone 插件必填）"
+    },
+    "KB_SYSTEMONE_MODEL": {
+      "description": "System One 判断模型（可选，默认取插件配置 model）"
+    },
+    "KB_SYSTEMONE_TIMEOUT_MS": {
+      "description": "单次 System One 请求超时（毫秒）",
+      "default": "60000"
+    },
     "PB_KNOWLEDGE_BASE_PATH": {
       "description": "知识库根目录（sync 功能必填）"
     },

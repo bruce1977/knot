@@ -26,7 +26,8 @@ ${profile}/
 ├── $config/
 │   ├── config.json              ← 主配置文件
 │   ├── extractor_meta_config.json   ← 可选：覆盖 meta 插件配置
-│   └── extractor_rate_config.json   ← 可选：覆盖 rate 插件配置
+│   ├── extractor_rate_config.json   ← 可选：覆盖 rate 插件配置
+│   └── extractor_rate_systemone_config.json ← 可选：覆盖 rate_systemone 插件配置
 ├── inbox/                       ← 原始文档
 ├── marked/                      ← 已分析文档
 ├── weknora/                     ← 已同步文档
@@ -104,6 +105,10 @@ node skills/knowledge/scripts/analyze_start.js <source_dir> <target_dir> [batch_
 | `KB_LLM_META_MODEL` | 否 | 继承 `KB_LLM_MODEL` | 元数据提取专用模型（覆盖默认） |
 | `KB_LLM_RATE_MODEL` | 否 | 继承 `KB_LLM_MODEL` | 评分提取专用模型（覆盖默认） |
 | `KB_LLM_TIMEOUT_MS` | 否 | `120000` | 单次 LLM 请求超时（毫秒） |
+| `KB_SYSTEMONE_BASE_URL` | 否 | `https://api.typesafe.ai` | System One API 地址（仅 rate_systemone 插件） |
+| `KB_SYSTEMONE_API_KEY` | 使用该插件时必填 | 空 | TypeSafe AI API 密钥 |
+| `KB_SYSTEMONE_MODEL` | 否 | 插件配置 `model`（`jev-latest`） | System One 判断模型 |
+| `KB_SYSTEMONE_TIMEOUT_MS` | 否 | `60000` | 单次 System One 请求超时（毫秒） |
 
 ### 插件配置：提示词 + 数据结构
 
@@ -114,7 +119,9 @@ scripts/plugins/
 ├── extractor_meta.js              ← 插件实现
 ├── extractor_meta_config.json     ← prompt + schema
 ├── extractor_rate.js
-└── extractor_rate_config.json
+├── extractor_rate_config.json
+├── extractor_rate_systemone.js
+└── extractor_rate_systemone_config.json
 ```
 
 文件结构（`prompt` 与 `schema` 两段）：
@@ -152,8 +159,10 @@ analyze_start.js                 ← Main entry: orchestrates full pipeline
     ├── extractor_original.js    ← Original frontmatter (no LLM, no cache)
     ├── extractor_meta.js        ← Metadata extraction
     ├── extractor_meta_config.json   ← its prompt + schema
-    ├── extractor_rate.js        ← Rating extraction
-    └── extractor_rate_config.json   ← its prompt + schema
+    ├── extractor_rate.js        ← Rating extraction (chat LLM)
+    ├── extractor_rate_config.json   ← its prompt + schema
+    ├── extractor_rate_systemone.js  ← Rating via TypeSafe System One / Jev judge model
+    └── extractor_rate_systemone_config.json ← its score question
 ```
 
 每个插件自行负责自己的临时缓存（写、读、清理）；`usesCache: false` 的插件不产生临时文件，主流程不做任何缓存管理。
@@ -171,7 +180,7 @@ analyze_start.js                 ← Main entry: orchestrates full pipeline
 }
 ```
 
-未配置时使用上表全部三个插件。插件只服务于 analyze 场景，配置一律放在 `analyze` 节下，不设全局键。
+未配置时使用上表全部三个插件。`extractor_rate` 可替换为 `extractor_rate_systemone`：用 TypeSafe System One（Jev）判断模型通过 `POST /v1/systemone` 打分，结果写入 `one-score` 字段（需配置 `KB_SYSTEMONE_API_KEY`，不走 chat LLM）。插件只服务于 analyze 场景，配置一律放在 `analyze` 节下，不设全局键。
 
 ### 处理流程
 

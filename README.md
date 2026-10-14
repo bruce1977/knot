@@ -19,7 +19,8 @@ ${profile}/
 ├── $config/
 │   ├── config.json              ← Main configuration file
 │   ├── extractor_meta_config.json   ← Optional: overrides the meta plugin config
-│   └── extractor_rate_config.json   ← Optional: overrides the rate plugin config
+│   ├── extractor_rate_config.json   ← Optional: overrides the rate plugin config
+│   └── extractor_rate_systemone_config.json ← Optional: overrides the rate_systemone plugin config
 ├── inbox/                       ← Raw documents
 ├── marked/                      ← Analyzed documents
 ├── weknora/                     ← Synced documents
@@ -206,6 +207,10 @@ Profile path resolution: `${KB_BASE_PATH}/${KB_DEFAULT_PROFILE}` (e.g., `D:\know
 | `KB_LLM_RATE_MODEL` | inherits `KB_LLM_MODEL` | Rating extraction model |
 | `KB_LLM_TIMEOUT_MS` | `120000` | LLM request timeout (ms) |
 | `KB_LLM_PROVIDER` | `auto` | Backend type: `auto`/`ollama`/`openai` |
+| `KB_SYSTEMONE_BASE_URL` | `https://api.typesafe.ai` | System One API address (`extractor_rate_systemone` only) |
+| `KB_SYSTEMONE_API_KEY` | required for that plugin | TypeSafe AI API key |
+| `KB_SYSTEMONE_MODEL` | plugin config `model` (`jev-latest`) | System One judge model |
+| `KB_SYSTEMONE_TIMEOUT_MS` | `60000` | System One request timeout (ms) |
 
 ### Sync
 
@@ -228,7 +233,9 @@ scripts/plugins/
 ├── extractor_meta.js              ← plugin implementation
 ├── extractor_meta_config.json     ← prompt + schema
 ├── extractor_rate.js
-└── extractor_rate_config.json
+├── extractor_rate_config.json
+├── extractor_rate_systemone.js    ← rating via TypeSafe System One (Jev) judge model
+└── extractor_rate_systemone_config.json
 ```
 
 File shape:

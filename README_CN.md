@@ -19,7 +19,8 @@ ${profile}/
 ├── $config/
 │   ├── config.json              ← 主配置文件
 │   ├── extractor_meta_config.json   ← 可选：覆盖 meta 插件配置
-│   └── extractor_rate_config.json   ← 可选：覆盖 rate 插件配置
+│   ├── extractor_rate_config.json   ← 可选：覆盖 rate 插件配置
+│   └── extractor_rate_systemone_config.json ← 可选：覆盖 rate_systemone 插件配置
 ├── inbox/                       ← 原始文档
 ├── marked/                      ← 已分析文档
 ├── weknora/                     ← 已同步文档
@@ -208,6 +209,10 @@ Profile 路径解析：`${KB_BASE_PATH}/${KB_DEFAULT_PROFILE}`（如 `D:\knowled
 | `KB_LLM_RATE_MODEL` | 继承 `KB_LLM_MODEL` | 评分提取专用模型 |
 | `KB_LLM_TIMEOUT_MS` | `120000` | 单次 LLM 请求超时 |
 | `KB_LLM_PROVIDER` | `auto` | 后端类型：`auto`/`ollama`/`openai` |
+| `KB_SYSTEMONE_BASE_URL` | `https://api.typesafe.ai` | System One API 地址（仅 `extractor_rate_systemone` 插件） |
+| `KB_SYSTEMONE_API_KEY` | 使用该插件时必填 | TypeSafe AI API 密钥 |
+| `KB_SYSTEMONE_MODEL` | 插件配置 `model`（`jev-latest`） | System One 判断模型 |
+| `KB_SYSTEMONE_TIMEOUT_MS` | `60000` | 单次 System One 请求超时（毫秒） |
 
 ### 同步功能
 
@@ -230,7 +235,9 @@ scripts/plugins/
 ├── extractor_meta.js              ← 插件实现
 ├── extractor_meta_config.json     ← prompt + schema
 ├── extractor_rate.js
-└── extractor_rate_config.json
+├── extractor_rate_config.json
+├── extractor_rate_systemone.js    ← 用 TypeSafe System One（Jev）判断模型打分
+└── extractor_rate_systemone_config.json
 ```
 
 文件结构：
