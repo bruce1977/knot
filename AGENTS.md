@@ -39,12 +39,13 @@
    - Command: `node scripts/weknora_forge_start_to_sync.js [profile]`
 
 4. **Archive** (`archive`):
-   - Moves old files based on age (mtime)
-   - Configurable retention period
-   - Command: `node scripts/archive_start.js <source_dir> <target_dir> [days]`
+   - Moves old files based on age (mtime); `archive.days = 0` skips the mtime check and moves everything
+   - Source: `${KB_PIPELINE_BASE_PATH}/<profile>/<source_folder>`, target: `${KB_ARCHIVE_BASE_PATH}/<target_folder>`
+   - Command: `node scripts/archive_start.js [profile]`
 
 **Environment Variables**:
-- Profile: `KB_BASE_PATH`, `KB_DEFAULT_PROFILE`
+- Profile: `KB_PIPELINE_BASE_PATH`, `KB_DEFAULT_PROFILE`
+- Archive target root: `KB_ARCHIVE_BASE_PATH`
 - Analysis: `KB_LLM_BASE_URL`, `KB_LLM_API_KEY`, `KB_LLM_MODEL`, `KB_LLM_PROVIDER`
 - Sync: `WEKNORA_BASE_URL`, `WEKNORA_API_KEY`
 - Forge sync: `WEKNORA_FORGE_BASE_URL`, `WEKNORA_API_KEY`, `WEKNORA_API_SECRET` (or profile `weknora.api_key` / `weknora.api_secret`)

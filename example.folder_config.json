@@ -28,8 +28,8 @@
     }
   },
   "archive": {
-    "orginal_folder": "archived",
-    "target_folder": "marked",
+    "source_folder": "weknora",
+    "target_folder": "archived",
     "days": 90
   }
 }

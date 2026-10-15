@@ -276,10 +276,10 @@ function writeJsonFile(filePath, data) {
 
 // ─── Profile Path ────────────────────────────────────────────────────────────
 
-// Get the profile directory by combining KB_BASE_PATH and KB_DEFAULT_PROFILE.
+// Get the profile directory by combining KB_PIPELINE_BASE_PATH and KB_DEFAULT_PROFILE.
 // Returns null if neither is set.
 function getProfileDir() {
-    const basePath = process.env.KB_BASE_PATH;
+    const basePath = process.env.KB_PIPELINE_BASE_PATH;
     const defaultProfile = process.env.KB_DEFAULT_PROFILE;
     if (basePath && defaultProfile) {
         return path.join(basePath, defaultProfile);
@@ -289,10 +289,12 @@ function getProfileDir() {
 
 // Resolve profile from argument or environment, load config section, apply defaults.
 // Exits with error if profile cannot be determined.
+// The profile directory is resolved under KB_PIPELINE_BASE_PATH, so the config
+// file always lives in the pipeline tree (even for the archive section).
 // @param {string} [profileArg] - Profile argument from command line
 // @param {string} section - Config section name (e.g., 'analyze', 'archive', 'weknora')
 // @param {Object} defaults - Default values for the section
-// @returns {{ profileDir: string, sectionConfig: Object }}
+// @returns {{ profile: string, profileDir: string, sectionConfig: Object }}
 function resolveProfile(profileArg, section, defaults = {}) {
     const profile = profileArg || process.env.KB_DEFAULT_PROFILE;
     if (!profile) {
@@ -301,7 +303,7 @@ function resolveProfile(profileArg, section, defaults = {}) {
         process.exit(1);
     }
 
-    const basePath = process.env.KB_BASE_PATH;
+    const basePath = process.env.KB_PIPELINE_BASE_PATH;
     const profileDir = basePath ? path.join(basePath, profile) : profile;
 
     let sectionConfig = { ...defaults };
@@ -316,7 +318,7 @@ function resolveProfile(profileArg, section, defaults = {}) {
         }
     }
 
-    return { profileDir, sectionConfig };
+    return { profile, profileDir, sectionConfig };
 }
 
 // ─── Exports ─────────────────────────────────────────────────────────────────

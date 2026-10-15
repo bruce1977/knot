@@ -22,7 +22,7 @@ description: "知识库管线技能：初始化目录、文档分析（元数据
 ## 目录结构
 
 ```
-${profile}/
+${KB_PIPELINE_BASE_PATH}/${profile}/
 ├── $config/
 │   ├── config.json              ← 主配置文件
 │   ├── extractor_meta_config.json   ← 可选：覆盖 meta 插件配置
@@ -30,8 +30,10 @@ ${profile}/
 │   └── extractor_rate_systemone_config.json ← 可选：覆盖 rate_systemone 插件配置
 ├── inbox/                       ← 原始文档
 ├── marked/                      ← 已分析文档
-├── weknora/                     ← 已同步文档
-└── archive/                     ← 归档文档
+└── weknora/                     ← 已同步文档
+
+${KB_ARCHIVE_BASE_PATH}/
+└── archived/                    ← 归档文档（archive.target_folder）
 ```
 
 ---
@@ -404,19 +406,32 @@ node --env-file=.env scripts/weknora_forge_start_to_sync.js [profile]
 
 ## 功能四：归档 (archive)
 
-将 `{source}` 中超过指定天数的旧文件移动到 `{target}` 目录。
+将 `${KB_PIPELINE_BASE_PATH}/<profile>/<source_folder>` 中超过指定天数的旧 `.md` 文件移动到 `${KB_ARCHIVE_BASE_PATH}/<target_folder>`。
 
 ### 调用方式
 
 ```bash
-node skills/knowledge/scripts/archive_start.js <source_dir> <target_dir> [days]
+node skills/knowledge/scripts/archive_start.js <profile>
 ```
 
 | 参数 | 必填 | 说明 |
 |------|------|------|
-| `<source_dir>` | 是 | 待归档目录（如 `weknora/`） |
-| `<target_dir>` | 是 | 归档输出目录（如 `archive/`） |
-| `[days]` | 否 | 文件年龄阈值（默认 90 天），按文件 mtime 计算 |
+| `<profile>` | 否 | 知识库 profile 名称（缺省取环境变量 `KB_DEFAULT_PROFILE`） |
+
+### 环境变量
+
+| 变量 | 必填 | 说明 |
+|------|------|------|
+| `KB_PIPELINE_BASE_PATH` | ❌ | 管线根目录，源目录基准（不设则直接用 profile 路径） |
+| `KB_ARCHIVE_BASE_PATH` | ✅ | 归档根目录，目标目录基准 |
+
+### config.json 结构
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `source_folder` | ❌ | 源目录（相对 profile，默认 `weknora`） |
+| `target_folder` | ❌ | 目标目录（相对 `KB_ARCHIVE_BASE_PATH`，默认 `archived`） |
+| `days` | ❌ | 文件年龄阈值，默认 90 天，按 mtime 计算；**为 `0` 时跳过 mtime 检查，直接全部移动** |
 
 ---
 

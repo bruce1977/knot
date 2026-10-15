@@ -15,7 +15,7 @@
 ## 目录结构
 
 ```
-${profile}/
+${KB_PIPELINE_BASE_PATH}/${profile}/
 ├── $config/
 │   ├── config.json              ← 主配置文件
 │   ├── extractor_meta_config.json   ← 可选：覆盖 meta 插件配置
@@ -23,8 +23,10 @@ ${profile}/
 │   └── extractor_rate_systemone_config.json ← 可选：覆盖 rate_systemone 插件配置
 ├── inbox/                       ← 原始文档
 ├── marked/                      ← 已分析文档
-├── weknora/                     ← 已同步文档
-└── archived/                    ← 归档文档
+└── weknora/                     ← 已同步文档
+
+${KB_ARCHIVE_BASE_PATH}/
+└── archived/                    ← 归档文档（archive.target_folder）
 ```
 
 ## 整体流程图
@@ -33,7 +35,7 @@ ${profile}/
 graph LR
     inbox[原始文档目录 inbox/] -->|分析脚本 analyze_start.js| marked[已分析目录 marked/]
     marked -->|同步脚本 weknora_start_to_sync.js| weknora[WeKnora 远程知识库]
-    weknora -->|归档脚本 archive_start.js| archived[归档目录 archived/]
+    weknora -->|归档脚本 archive_start.js| archived[归档目录 KB_ARCHIVE_BASE_PATH]
     cfg[配置文件 $config/config.json] -.->|初始化脚本 init_start.js| inbox
 ```
 
@@ -70,8 +72,10 @@ node --env-file=.env scripts/weknora_forge_start_to_sync.js [profile]
 ### 归档
 
 ```bash
-node scripts/kb-archive.js <profile> [days]
+node scripts/archive_start.js [profile]
 ```
+
+将 `${KB_PIPELINE_BASE_PATH}/<profile>/<source_folder>` 中超过 `archive.days` 天的 `.md` 文件移动到 `${KB_ARCHIVE_BASE_PATH}/<target_folder>`；`archive.days = 0` 时不检查 mtime，直接全部移动。
 
 ## 同步导入 WeKnora (sync)
 
@@ -150,7 +154,7 @@ npm run sync:forge [profile]
 
 | 变量 | 必填 | 说明 |
 |------|------|------|
-| `KB_BASE_PATH` / `KB_DEFAULT_PROFILE` | ❌ | Profile 根目录（也可用 CLI 传入 `<profile>`） |
+| `KB_PIPELINE_BASE_PATH` / `KB_DEFAULT_PROFILE` | ❌ | Profile 根目录（也可用 CLI 传入 `<profile>`） |
 | `WEKNORA_FORGE_BASE_URL` | ✅ | Forge 服务地址 |
 | `WEKNORA_API_KEY` | ✅* | `X-API-Key`（*若已配 profile `weknora.api_key` 则以其为准） |
 | `WEKNORA_API_SECRET` | ✅* | HMAC-SHA256 签名密钥（*若已配 profile `weknora.api_secret` 则以其为准） |
@@ -193,10 +197,13 @@ npm run sync:forge [profile]
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `KB_BASE_PATH` | - | 知识库根目录（如 `D:\knowledge\obsidian`） |
-| `KB_DEFAULT_PROFILE` | - | 默认 profile 名称（如 `ai`），与 `KB_BASE_PATH` 拼接成完整路径 |
+| `KB_PIPELINE_BASE_PATH` | - | 知识库管线根目录（如 `D:\knowledge\obsidian`），其下存放各 `<profile>` 子目录 |
+| `KB_ARCHIVE_BASE_PATH` | archive 必填 | 归档根目录（如 `D:\knowledge\archive`），`archive.target_folder` 以其为基准 |
+| `KB_DEFAULT_PROFILE` | - | 默认 profile 名称（如 `ai`），与 `KB_PIPELINE_BASE_PATH` 拼接成完整路径 |
 
-Profile 路径解析：`${KB_BASE_PATH}/${KB_DEFAULT_PROFILE}`（如 `D:\knowledge\obsidian\ai`）
+Profile 路径解析：`${KB_PIPELINE_BASE_PATH}/${KB_DEFAULT_PROFILE}`（如 `D:\knowledge\obsidian\ai`）
+
+`archive_start.js` 两侧基准不同：源目录 `${KB_PIPELINE_BASE_PATH}/<profile>/<source_folder>` → 目标目录 `${KB_ARCHIVE_BASE_PATH}/<target_folder>`。`archive.days` 为 `0` 时跳过 mtime 检查，直接移动全部 `.md` 文件。
 
 ### 分析功能
 
@@ -315,7 +322,7 @@ scripts/
 
 ```javascript
 function getProfileDir() {
-    const basePath = process.env.KB_BASE_PATH;
+    const basePath = process.env.KB_PIPELINE_BASE_PATH;
     const defaultProfile = process.env.KB_DEFAULT_PROFILE;
     if (basePath && defaultProfile) {
         return path.join(basePath, defaultProfile);

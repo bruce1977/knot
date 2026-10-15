@@ -4,7 +4,7 @@ const { resolveProfile } = require("./lib/common");
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const DIRS = ["inbox", "marked", "weknora", "archived"];
+const DIRS = ["inbox", "marked", "weknora"];
 const CONFIG_DIR = "$config";
 
 const DEFAULT_CONFIG = {
@@ -34,8 +34,8 @@ const DEFAULT_CONFIG = {
         },
     },
     archive: {
-        orginal_folder: "archived",
-        target_folder: "marked",
+        source_folder: "weknora",
+        target_folder: "archived",
         days: 90,
     },
 };

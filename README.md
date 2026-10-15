@@ -15,7 +15,7 @@ Core skill for knowledge base pipeline, providing four main functions: initializ
 ## Directory Structure
 
 ```
-${profile}/
+${KB_PIPELINE_BASE_PATH}/${profile}/
 ├── $config/
 │   ├── config.json              ← Main configuration file
 │   ├── extractor_meta_config.json   ← Optional: overrides the meta plugin config
@@ -23,8 +23,10 @@ ${profile}/
 │   └── extractor_rate_systemone_config.json ← Optional: overrides the rate_systemone plugin config
 ├── inbox/                       ← Raw documents
 ├── marked/                      ← Analyzed documents
-├── weknora/                     ← Synced documents
-└── archived/                    ← Archived documents
+└── weknora/                     ← Synced documents
+
+${KB_ARCHIVE_BASE_PATH}/
+└── archived/                    ← Archived documents (archive.target_folder)
 ```
 
 ## Flow Diagram
@@ -33,7 +35,7 @@ ${profile}/
 graph LR
     inbox[Raw documents inbox/] -->|analyze_start.js| marked[Analyzed documents marked/]
     marked -->|weknora_start_to_sync.js| weknora[WeKnora remote KB]
-    weknora -->|archive_start.js| archived[Archived directory]
+    weknora -->|archive_start.js| archived[Archived directory KB_ARCHIVE_BASE_PATH]
     cfg[config.json] -.->|init_start.js| inbox
 ```
 
@@ -70,8 +72,10 @@ Requires env `WEKNORA_FORGE_BASE_URL` (plus `WEKNORA_API_KEY` / `WEKNORA_API_SEC
 ### Archive
 
 ```bash
-node scripts/archive_start.js <source_dir> <target_dir> [days]
+node scripts/archive_start.js [profile]
 ```
+
+Moves `.md` files older than `archive.days` from `${KB_PIPELINE_BASE_PATH}/<profile>/<source_folder>` to `${KB_ARCHIVE_BASE_PATH}/<target_folder>`; `archive.days = 0` moves everything without checking mtime.
 
 ## Sync to WeKnora (sync)
 
@@ -148,7 +152,7 @@ npm run sync:forge [profile]
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `KB_BASE_PATH` / `KB_DEFAULT_PROFILE` | ❌ | Profile root (else pass `<profile>` on the CLI) |
+| `KB_PIPELINE_BASE_PATH` / `KB_DEFAULT_PROFILE` | ❌ | Profile root (else pass `<profile>` on the CLI) |
 | `WEKNORA_FORGE_BASE_URL` | ✅ | Forge base URL |
 | `WEKNORA_API_KEY` | ✅* | `X-API-Key` (*profile `weknora.api_key` wins if set) |
 | `WEKNORA_API_SECRET` | ✅* | HMAC-SHA256 signing secret (*profile `weknora.api_secret` wins if set) |
@@ -191,10 +195,13 @@ Dedup always runs when the file has a frontmatter `hash` (no config switch):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `KB_BASE_PATH` | - | Knowledge base root directory (e.g., `D:\knowledge\obsidian`) |
-| `KB_DEFAULT_PROFILE` | - | Default profile name (e.g., `ai`), combined with `KB_BASE_PATH` to form full path |
+| `KB_PIPELINE_BASE_PATH` | - | Knowledge base pipeline root directory (e.g., `D:\knowledge\obsidian`), holds `<profile>` subdirectories |
+| `KB_ARCHIVE_BASE_PATH` | required for `archive` | Archive root directory (e.g., `D:\knowledge\archive`), `archive.target_folder` is resolved against it |
+| `KB_DEFAULT_PROFILE` | - | Default profile name (e.g., `ai`), combined with `KB_PIPELINE_BASE_PATH` to form full path |
 
-Profile path resolution: `${KB_BASE_PATH}/${KB_DEFAULT_PROFILE}` (e.g., `D:\knowledge\obsidian\ai`)
+Profile path resolution: `${KB_PIPELINE_BASE_PATH}/${KB_DEFAULT_PROFILE}` (e.g., `D:\knowledge\obsidian\ai`)
+
+`archive_start.js` splits the two roots: source `${KB_PIPELINE_BASE_PATH}/<profile>/<source_folder>` → target `${KB_ARCHIVE_BASE_PATH}/<target_folder>`. When `archive.days` is `0`, the mtime check is skipped and every `.md` file is moved.
 
 ### Analysis
 
@@ -315,7 +322,7 @@ The `getProfileDir()` function in `lib/common.js` resolves the profile directory
 
 ```javascript
 function getProfileDir() {
-    const basePath = process.env.KB_BASE_PATH;
+    const basePath = process.env.KB_PIPELINE_BASE_PATH;
     const defaultProfile = process.env.KB_DEFAULT_PROFILE;
     if (basePath && defaultProfile) {
         return path.join(basePath, defaultProfile);
