@@ -20,6 +20,29 @@ const MIN_CHINESE_RATIO = 0;       // disabled: code-heavy docs fail this check
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+// ─── Error Classification ────────────────────────────────────────────────────
+
+// True when a failure points at an unreachable or unhealthy backend (LLM,
+// WeKnora) rather than at the article being processed. Such errors must not
+// quarantine the file: the next run should retry it once the backend recovers.
+function isBackendUnavailable(error) {
+    const message = String((error && error.message) || error || "");
+
+    // Connection-level failures from fetch()/undici and DNS resolution.
+    if (/fetch failed|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|EPIPE|socket hang up|network error/i.test(message)) {
+        return true;
+    }
+
+    // 5xx and throttling responses say the server is down or overloaded.
+    const statusMatch = message.match(/\bHTTP (\d{3})\b/);
+    if (statusMatch) {
+        const status = Number(statusMatch[1]);
+        return status >= 500 || status === 408 || status === 429;
+    }
+
+    return false;
+}
+
 // ─── Title Processing ────────────────────────────────────────────────────────
 
 // Normalize a title: replace separator chars with space, collapse whitespace, trim.
@@ -334,6 +357,9 @@ module.exports = {
 
     // Async
     sleep,
+
+    // Errors
+    isBackendUnavailable,
 
     // Title
     normalizeTitle,

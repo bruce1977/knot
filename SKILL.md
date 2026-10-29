@@ -29,7 +29,9 @@ ${KB_PIPELINE_BASE_PATH}/${profile}/
 │   ├── extractor_rate_config.json   ← 可选：覆盖 rate 插件配置
 │   └── extractor_rate_systemone_config.json ← 可选：覆盖 rate_systemone 插件配置
 ├── inbox/                       ← 原始文档
+│   └── err/                     ← 分析失败的文章
 ├── marked/                      ← 已分析文档
+│   └── err/                     ← 同步重试后仍失败的文章
 └── weknora/                     ← 已同步文档
 
 ${KB_ARCHIVE_BASE_PATH}/
@@ -214,10 +216,13 @@ source_dir/*.md
 ```
 [1/30] article.md  DONE  12.4s
 [2/30] too-short.md  SKIP  3ms  text too short: 42 chars < 200
-[3/30] broken.md  FAIL  8.1s  LLM failed after 3 retries: fetch failed
+[3/30] broken.md  ERR  8.1s  Validation failed after 3 attempts: ...  -> err\broken.md
+[4/30] backend-down.md  FAIL  8.1s  LLM unavailable after 3 attempts: fetch failed
 ```
 
 LLM 重试等细节不逐条打印，统一汇总到结尾的 `LLM: N calls, M retries`。
+
+校验不通过或分析重试 3 次仍失败的文章会移动到 `inbox/err/`（重名自动加时间戳），不再阻塞后续文件；LLM 本身不可用（连接失败、5xx）时记为 FAIL 并保留在 `inbox/`，等下次运行重试。
 
 ### 元数据标准
 
@@ -327,6 +332,8 @@ node scripts/kb-weknora.js <profile>
 | `max_consecutive_failures` | ❌ | 连续失败多少篇后中止流程（默认 3） |
 | `abort_grace_ms` | ❌ | 中止后在途请求的宽限期，超时强杀进程（默认 30000） |
 | `rollback_on_publish_failure` | ❌ | 发布失败是否回滚删除草稿（默认 true） |
+| `max_file_attempts` | ❌ | 单篇文章最多尝试次数，仍失败则移入 `err/`（默认 3） |
+| `retry_delay_ms` | ❌ | 重试基础间隔，按尝试次数递增（默认 2000） |
 
 > 为兼容旧配置，未配置 `normal_submit_interval_ms` / `wiki_submit_interval_ms` 时，两者均回退到 `submit_interval_ms`（若也未配则 100ms）。脚本**不再 PUT `description`**，摘要完全由 WeKnora 生成。
 
@@ -338,7 +345,7 @@ node scripts/kb-weknora.js <profile>
 3. **建草稿**：`POST /knowledge-bases/{target}/knowledge/manual`，`status=draft`，同时提交 `tag_ids`
 4. **写元数据**：`PUT /knowledge/{id}` 只写 `custom_metadata`（含 `hash`），写完回读校验
 5. **发布**：`PUT /knowledge/manual/{id}`，`status=publish` —— 到这一步才开始解析流水线
-6. 三步全部成功后才移动本地文件到 `weknora/`，否则留在源目录等下次重试
+6. 三步全部成功后才移动本地文件到 `weknora/`；单篇最多尝试 `max_file_attempts` 次，仍失败则移动到 `marked/err/` 并继续处理后续文章（后端不可用时保留原文件，等下次运行重试）
 7. 等待 `normal_submit_interval_ms` / `wiki_submit_interval_ms`，供 WeKnora 生成摘要
 
 > 关键点：WeKnora 的创建接口（`ManualKnowledgePayload`）**结构上没有 `custom_metadata` 字段**，且 `publish` 入库会立即启动「按快照整行回写」的解析流水线，把随后 PUT 的 metas 冲掉。所以改为先建草稿——草稿不进流水线，写入零竞态、`summary_status` 为空不触发摘要重算（无额外 LLM 开销）；发布时 metas 已在库里，第一次摘要就带上了它们。tags 存在 `knowledge_tags` 关联表，发布接口与流水线都不写该表，因此不受影响。
@@ -355,7 +362,7 @@ graph TD
     P --> F[移动本地文件到 weknora 目录]
     F --> W[等待提交间隔, 供生成摘要]
     W --> S
-    P -.-> E[任一步失败: 回滚草稿, 文件不移动, 留给下次重试]
+    P -.-> E[任一步失败: 回滚草稿并重试, 仍失败则移入 err 目录]
 ```
 
 > 连续失败达到 `max_consecutive_failures` 时中止整个流程，剩余文章留在源目录待人工处理。
@@ -364,16 +371,17 @@ graph TD
 
 | 场景 | 处理 |
 |------|------|
-| 发布失败 | 默认**回滚删除草稿**（否则残留草稿会被去重当成「已处理过」而永久跳过），本地文件不移动 |
+| 发布失败 | 默认**回滚删除草稿**（否则残留草稿会被去重当成「已处理过」而永久跳过），随后重试；重试后仍失败则移入 `marked/err/` |
 | 发现重复但无 custom_metadata | 判定为上次处理中途夭折的残废条目，**直接删除**后按无冲突继续上传 |
-| 单篇其他环节失败 | 记录 FAIL，本地文件**不移动**，下次运行重新处理 |
-| 连续失败 | 连续 `max_consecutive_failures`（默认 3）篇失败即判定后端异常，**停止领新文章并退出进程**，剩余文章留待人工处理 |
-| 分配 tags 失败 | 抛出，本地文件**不移动**，下次运行重新处理 |
+| 单篇尝试 `max_file_attempts` 次仍失败 | 记录 ERR，文件移入 `marked/err/`（重名自动加时间戳），继续处理后续文章 |
+| 后端不可用（连接失败、5xx、408/429） | 记录 FAIL，本地文件**不移动**，下次运行重试；不会把整批文章扔进 `err/` |
+| 连续失败 | 连续 `max_consecutive_failures`（默认 3）篇后端失败即判定后端异常，**停止领新文章并退出进程**，剩余文章留待人工处理 |
+| 分配 tags 失败 | 随文章一起重试；仍失败则移入 `marked/err/` |
 | 摘要生成较慢 | 通过等待间隔缓解，间隔按实际硬件在 config 中调优 |
 
 ### 通过 WeKnora Forge 同步 (sync:forge)
 
-`scripts/weknora_forge_start_to_sync.js` 复用同一套 profile / `weknora` 配置 / 目标库分流 / 移动文件流程，但 API 改走 WeKnora Forge（HMAC 签名 + 一次性 publish）；原脚本 `weknora_start_to_sync.js` 不变。
+`scripts/weknora_forge_start_to_sync.js` 复用同一套 profile / `weknora` 配置 / 目标库分流 / 移动文件 / 重试与 `err` 隔离流程，但 API 改走 WeKnora Forge（HMAC 签名 + 一次性 publish）。
 
 ```bash
 npm run sync:forge [profile]
@@ -394,6 +402,8 @@ node --env-file=.env scripts/weknora_forge_start_to_sync.js [profile]
 1. 仅按 `custom_metadata.hash` 查询普通库 + wiki 库（查询条件**不含** title）
 2. 逐条比对命中结果的 `title === submitTitle`（`title` 缺省回退文件名去 `.md`）
 3. 完全一致 → `DUP` 移入 `marked/dupl/`；hash 有但 title 都不同 / 无结果 → 继续发布
+
+**失败处理：** 与旧脚本一致——单篇最多尝试 `max_file_attempts` 次（间隔 `retry_delay_ms × 次数`），仍失败则移入 `marked/err/` 并继续后续文章；后端不可用（连接失败、5xx、408/429）时保留原文件，等下次运行重试，并计入 `max_consecutive_failures`。
 
 **额外配置字段：**
 

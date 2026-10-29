@@ -22,7 +22,9 @@ ${KB_PIPELINE_BASE_PATH}/${profile}/
 │   ├── extractor_rate_config.json   ← Optional: overrides the rate plugin config
 │   └── extractor_rate_systemone_config.json ← Optional: overrides the rate_systemone plugin config
 ├── inbox/                       ← Raw documents
+│   └── err/                     ← Articles analysis gave up on
 ├── marked/                      ← Analyzed documents
+│   └── err/                     ← Articles WeKnora gave up on after retries
 └── weknora/                     ← Synced documents
 
 ${KB_ARCHIVE_BASE_PATH}/
@@ -52,6 +54,8 @@ node scripts/init_start.js <base_dir>
 ```bash
 node scripts/analyze_start.js <source_dir> <target_dir> [batch_size]
 ```
+
+Each article is analyzed with up to three LLM attempts per plugin. An article that still fails is moved to `inbox/err/` and the batch continues; if the LLM itself is unreachable, the file stays in `inbox/` so the next run can retry it.
 
 ### Sync to WeKnora
 
@@ -88,7 +92,7 @@ Imports documents from `marked/` **one by one** directly into the target We know
 3. **Create as draft**: `POST /knowledge-bases/{target}/knowledge/manual` with `status=draft`, carrying `tag_ids` in the same request
 4. **Write metadata**: `PUT /knowledge/{id}` writes only `custom_metadata` (including `hash`), then reads the record back to verify
 5. **Publish**: `PUT /knowledge/manual/{id}` with `status=publish` — this is what starts the parse pipeline
-6. Move local file to `weknora/`, only after all three calls succeed; failures leave it in place for the next run
+6. Move local file to `weknora/`, only after all three calls succeed. An article that fails every attempt (`max_file_attempts`) is moved to `marked/err/` so the batch can continue; backend outages leave it in place for the next run
 7. Wait `normal_submit_interval_ms` or `wiki_submit_interval_ms` so WeKnora has time to generate the summary
 
 ### Why "Draft → Metadata → Publish"
@@ -124,6 +128,8 @@ Key fields in `config.json`'s `weknora` section:
 | `max_consecutive_failures` | ❌ | Consecutive failures before aborting the run (default 3) |
 | `abort_grace_ms` | ❌ | Grace period for in-flight requests after abort, then kills the process (default 30000) |
 | `rollback_on_publish_failure` | ❌ | Delete the leftover draft when publishing fails (default true) |
+| `max_file_attempts` | ❌ | Attempts per article before it is moved to `err/` (default 3) |
+| `retry_delay_ms` | ❌ | Base delay between attempts, multiplied by the attempt number (default 2000) |
 
 > Compatibility: When `normal_submit_interval_ms` / `wiki_submit_interval_ms` are not configured, both fall back to `submit_interval_ms` (or 100ms if also not configured). Default intervals (30s / 600s) are estimated based on summary generation time and can be tuned per hardware.
 
@@ -131,11 +137,12 @@ Key fields in `config.json`'s `weknora` section:
 
 | Scenario | Handling |
 |----------|----------|
-| Publish failure | Rolls back the leftover draft by default (`rollback_on_publish_failure`); a draft left behind would later be treated as already-processed by dedup and skipped forever. Local file is not moved |
+| Publish failure | Rolls back the leftover draft by default (`rollback_on_publish_failure`); a draft left behind would later be treated as already-processed by dedup and skipped forever. The article is retried, then moved to `marked/err/` |
 | Duplicate without custom_metadata | Treated as a husk from an abandoned upload (metadata is written before publishing, so a missing hash means it never finished) — **deleted**, then uploaded as if nothing existed |
-| Any other per-article failure | Log FAIL, local file is not moved, retried on the next run |
+| Article-specific failure after all attempts | Log `ERR`, move the file to `marked/err/`, keep processing the rest of the batch |
+| Backend unavailable (connection failure, 5xx, 408/429) | Log `FAIL`, local file is **not** moved so the next run retries it; does not quarantine the batch |
 | Consecutive failures | After `max_consecutive_failures` (default 3), stop taking new work and **exit the process with a non-zero code**. Remaining articles stay in the source directory |
-| Tag assignment failure | Throw, local file **not moved**, reprocessed on next run |
+| Tag assignment failure | Retried with the article; if it keeps failing it is moved to `marked/err/` |
 | Slow summary generation | Mitigated by wait intervals, tunable in config |
 
 ## Sync via WeKnora Forge (sync:forge)
@@ -181,6 +188,10 @@ Dedup always runs when the file has a frontmatter `hash` (no config switch):
 1. Search **only** `custom_metadata.hash = '<hash>'` across normal + wiki KBs (`title` is not part of the query).
 2. Compare `item.title === submitTitle` against each hit (`submitTitle` = frontmatter `title`, else filename without `.md`).
 3. Any hit with the same title → `DUP`, move to `marked/dupl/`. Hash present but titles differ (or no hits) → publish as usual.
+
+### Failure handling (forge)
+
+Same policy as the legacy sync: each article is attempted `max_file_attempts` times (delay `retry_delay_ms × attempt`). If it still fails, it is moved to `marked/err/` and the batch continues. Backend-level failures (connection errors, 5xx, 408/429) leave the file in place for the next run and count toward `max_consecutive_failures`.
 
 ### Extra config fields
 

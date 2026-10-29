@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const { sleep, moveFile, resolveProfile } = require("./lib/common");
+const { sleep, moveFile, moveToError, resolveProfile, isBackendUnavailable } = require("./lib/common");
 const { splitFrontmatter } = require("./lib/frontmatter");
 const { WeknoraForgeClient } = require("./lib/weknora_forge");
 
@@ -24,6 +24,8 @@ const { profileDir, sectionConfig: weknoraConfig } = resolveProfile(profileArg, 
     max_consecutive_failures: 3,
     abort_grace_ms: 30000,
     submit_timeout_seconds: 0,
+    max_file_attempts: 3,
+    retry_delay_ms: 2000,
     api_key: "",
     api_secret: "",
     publish_sync: false,
@@ -49,6 +51,11 @@ const publishSync = syncCfg.publish_sync === true || syncCfg.publish_sync === "t
 const maxConsecutiveFailures = Math.max(1, parseInt(syncCfg.max_consecutive_failures || "3", 10));
 // How long in-flight requests may linger after the abort before the process is killed.
 const abortGraceMs = parseInt(syncCfg.abort_grace_ms || "30000", 10);
+// A single article may fail for reasons a retry fixes (large payload, slow
+// parse). After these attempts it is quarantined in <source>/err and the batch
+// keeps running.
+const maxFileAttempts = Math.max(1, parseInt(syncCfg.max_file_attempts || "3", 10));
+const retryDelayMs = Math.max(0, parseInt(syncCfg.retry_delay_ms || "2000", 10));
 
 if (!kbId) { console.error("FATAL: kb_id is required in config"); process.exit(1); }
 
@@ -124,6 +131,7 @@ function selectTarget(fields) {
 }
 
 const dedupDir = path.join(sourceDir, "dupl");
+const errDir = path.join(sourceDir, "err");
 
 // Duplicate check via POST /api/v2/knowledge/search on custom_metadata.hash.
 // The query only filters by hash; title is compared against each returned hit
@@ -238,6 +246,42 @@ async function processFile(file, idx, total) {
     }
 }
 
+// Give one article a few attempts before giving up on it: a long article can
+// make a single publish fail even though the next attempt succeeds.
+async function processFileWithRetry(file, idx, total) {
+    let lastError;
+    for (let attempt = 1; attempt <= maxFileAttempts; attempt++) {
+        try {
+            return await processFile(file, idx, total);
+        } catch (err) {
+            lastError = err;
+            // Stop retrying once the run has been aborted (backend is down).
+            if (aborted || attempt >= maxFileAttempts) break;
+            console.log(`  retry ${attempt}/${maxFileAttempts - 1} ${file}: ${err.message}`);
+            await sleep(retryDelayMs * attempt);
+        }
+    }
+    throw lastError;
+}
+
+// A dead backend says nothing about the article, so the file stays in place for
+// the next run. A failure that survives every retry is article-specific: move
+// it to err/ and let the rest of the batch continue.
+function handleFileFailure(file, error) {
+    const srcPath = path.join(sourceDir, file);
+
+    if (isBackendUnavailable(error)) {
+        registerFailure(file);
+        return { status: "fail", file, error: error.message };
+    }
+
+    if (fs.existsSync(srcPath)) {
+        const destination = moveToError(srcPath, errDir);
+        console.log(`  ERR ${file}: moved to ${path.relative(sourceDir, destination)} after ${maxFileAttempts} attempts`);
+    }
+    return { status: "error", file, error: error.message };
+}
+
 async function runConcurrent(items, concurrency, fn) {
     const results = [];
     let idx = 0;
@@ -274,8 +318,8 @@ function loadFiles() {
 }
 
 function summarize(results) {
-    let normalSynced = 0, normalFailed = 0, normalDup = 0;
-    let wikiSynced = 0, wikiFailed = 0, wikiDup = 0;
+    let normalSynced = 0, normalFailed = 0, normalDup = 0, normalError = 0;
+    let wikiSynced = 0, wikiFailed = 0, wikiDup = 0, wikiError = 0;
     let totalNormalSyncMs = 0;
     let totalWikiSyncMs = 0;
 
@@ -288,6 +332,9 @@ function summarize(results) {
         } else if (r.status === "dup") {
             if (isWiki) wikiDup++;
             else normalDup++;
+        } else if (r.status === "error") {
+            if (isWiki) wikiError++;
+            else normalError++;
         } else {
             if (isWiki) wikiFailed++;
             else normalFailed++;
@@ -297,7 +344,7 @@ function summarize(results) {
     const avgNormalSyncMs = normalSynced > 0 ? Math.round(totalNormalSyncMs / normalSynced) : 0;
     const avgWikiSyncMs = wikiSynced > 0 ? Math.round(totalWikiSyncMs / wikiSynced) : 0;
 
-    return { normalSynced, normalDup, normalFailed, avgNormalSyncMs, wikiSynced, wikiDup, wikiFailed, avgWikiSyncMs };
+    return { normalSynced, normalDup, normalFailed, normalError, avgNormalSyncMs, wikiSynced, wikiDup, wikiFailed, wikiError, avgWikiSyncMs };
 }
 
 async function main() {
@@ -316,19 +363,16 @@ async function main() {
 
     try {
         const results = await runConcurrent(files, concurrency, (f, idx) =>
-            processFile(f, idx, files.length)
+            processFileWithRetry(f, idx, files.length)
                 .then(result => { registerSuccess(); return result; })
-                .catch(err => {
-                    registerFailure(f);
-                    return { status: "fail", file: f, error: err.message };
-                })
+                .catch(err => handleFileFailure(f, err))
         );
 
         const summary = summarize(results);
         console.log(`\nDone (${fmtMs(Date.now() - startTime)}).`);
-        console.log(`  normal: ${summary.normalSynced} synced (avg ${fmtMs(summary.avgNormalSyncMs)}), ${summary.normalDup} dup, ${summary.normalFailed} failed`);
-        console.log(`  wiki:   ${summary.wikiSynced} synced (avg ${fmtMs(summary.avgWikiSyncMs)}), ${summary.wikiDup} dup, ${summary.wikiFailed} failed`);
-        const totalFailed = summary.normalFailed + summary.wikiFailed;
+        console.log(`  normal: ${summary.normalSynced} synced (avg ${fmtMs(summary.avgNormalSyncMs)}), ${summary.normalDup} dup, ${summary.normalFailed} failed, ${summary.normalError} err`);
+        console.log(`  wiki:   ${summary.wikiSynced} synced (avg ${fmtMs(summary.avgWikiSyncMs)}), ${summary.wikiDup} dup, ${summary.wikiFailed} failed, ${summary.wikiError} err`);
+        const totalFailed = summary.normalFailed + summary.wikiFailed + summary.normalError + summary.wikiError;
         if (totalFailed > 0) process.exitCode = 1;
 
         if (abortedFiles.length > 0) {

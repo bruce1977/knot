@@ -95,6 +95,7 @@ class BaseExtractor {
 
     async extract(content, options) {
         let lastErrors = [];
+        let lastTransportError = null;
         const model = this.getModel();
 
         for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -112,9 +113,14 @@ class BaseExtractor {
             try {
                 raw = await llmChat(this.getPrompts().system, userPrompt, model, { temperature });
             } catch (e) {
+                // A transport error means the model never answered. Remember it
+                // so callers can tell a dead backend apart from an article the
+                // model keeps refusing to analyze.
+                lastTransportError = e;
                 if (attempt < MAX_ATTEMPTS) await sleep(1000);
                 continue;
             }
+            lastTransportError = null;
 
             try {
                 const parsed = extractJSON(raw.trim());
@@ -128,6 +134,11 @@ class BaseExtractor {
                 lastErrors = [`Output is not valid JSON: ${e.message}`];
                 continue;
             }
+        }
+
+        // Every attempt failed before the model produced anything.
+        if (lastTransportError && lastErrors.length === 0) {
+            throw new Error(`LLM unavailable after ${MAX_ATTEMPTS} attempts: ${lastTransportError.message}`);
         }
 
         throw new Error(`Validation failed after ${MAX_ATTEMPTS} attempts: ${lastErrors.join("; ")}`);

@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { generateYamlHeader, sanitizeTitle } = require("./lib/frontmatter");
 const { stripFrontmatter, cleanWechatContent, getLlmStats } = require("./lib/llm");
-const { contentHash, resolveProfile, validateMd, moveToError } = require("./lib/common");
+const { contentHash, resolveProfile, validateMd, moveToError, isBackendUnavailable } = require("./lib/common");
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -150,6 +150,9 @@ class KnowledgeAnalyzer {
         const batch = allFiles.slice(0, this.batchSize);
         const batchTimeoutMs = 300000 * this.batchSize;
         const indexWidth = String(batch.length).length;
+        // Articles that cannot be analyzed (invalid or retried-out) are parked
+        // here so they stop blocking the rest of the batch.
+        const errDir = path.join(this.sourceDir, "err");
 
         console.log(`\nKnowledge Analysis  ${batch.length}/${allFiles.length} files  timeout ${batchTimeoutMs / 1000}s`);
 
@@ -173,7 +176,7 @@ class KnowledgeAnalyzer {
                 const filePath = path.join(this.sourceDir, filename);
                 const validationErrors = validateMd(filePath);
                 if (validationErrors.length > 0) {
-                    moveToError(filePath, path.join(this.sourceDir, "error"));
+                    moveToError(filePath, errDir);
                     this.logFileEnd("SKIP", fileStart, validationErrors.join("; "));
                     results.push({ status: "skipped", ms: Date.now() - fileStart });
                     continue;
@@ -184,8 +187,25 @@ class KnowledgeAnalyzer {
                 results.push({ status: "done", ms: Date.now() - fileStart });
 
             } catch (err) {
-                this.logFileEnd("FAIL", fileStart, err.message);
-                results.push({ status: "failed", ms: Date.now() - fileStart });
+                const filePath = path.join(this.sourceDir, filename);
+
+                // An unreachable LLM is not the article's fault: keep the file in
+                // the inbox so the next run retries it instead of quarantining
+                // the whole batch.
+                if (isBackendUnavailable(err)) {
+                    this.logFileEnd("FAIL", fileStart, err.message);
+                    results.push({ status: "failed", ms: Date.now() - fileStart });
+                    continue;
+                }
+
+                // Analysis already retried three times, so the article itself is
+                // the problem. Move it to err/ and keep the batch running.
+                const destination = fs.existsSync(filePath) ? moveToError(filePath, errDir) : null;
+                const detail = destination
+                    ? `${err.message}  -> ${path.relative(this.sourceDir, destination)}`
+                    : err.message;
+                this.logFileEnd("ERR", fileStart, detail);
+                results.push({ status: "error", ms: Date.now() - fileStart });
             }
         }
 
@@ -209,6 +229,7 @@ class KnowledgeAnalyzer {
         const entries = Object.values(results);
         const done = entries.filter((r) => r.status === "done").length;
         const failed = entries.filter((r) => r.status === "failed").length;
+        const errors = entries.filter((r) => r.status === "error").length;
         const skipped = entries.filter((r) => r.status === "skipped").length;
         const totalMs = entries.reduce((sum, r) => sum + (r.ms || 0), 0);
         const avg = entries.length ? (totalMs / entries.length / 1000).toFixed(1) : "0.0";
@@ -217,7 +238,7 @@ class KnowledgeAnalyzer {
         console.log([
             "",
             "=".repeat(60),
-            `Done: ${done}  Failed: ${failed}  Skipped: ${skipped}  Total: ${fmtMs(totalMs)}  Avg: ${avg}s/file`,
+            `Done: ${done}  Failed: ${failed}  Err: ${errors}  Skipped: ${skipped}  Total: ${fmtMs(totalMs)}  Avg: ${avg}s/file`,
             `LLM: ${llm.calls} calls, ${llm.retries} retries`,
             "=".repeat(60),
         ].join("\n"));
